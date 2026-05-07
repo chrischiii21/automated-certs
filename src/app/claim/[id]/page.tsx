@@ -6,8 +6,8 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Download, Award, ShieldCheck, Sparkles, User, ArrowRight, Loader2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
-import { cn } from '../../lib/utils';
 import { supabase } from '@/lib/supabase';
+
 
 export default function ClaimPage() {
   const params = useParams();

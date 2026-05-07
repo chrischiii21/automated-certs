@@ -5,6 +5,8 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { Plus, Award, Users, Share2, ArrowUpRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
+import { cn } from '@/lib/utils';
+
 
 export default function AdminDashboard() {
   const events = [
