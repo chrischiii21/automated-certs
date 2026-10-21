@@ -1,5 +1,5 @@
 import 'server-only';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { db } from './db';
 
 const TOKEN_TTL_MINUTES = 30;
@@ -12,25 +12,29 @@ export function normalizeEmail(email: string): string | null {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && e.length <= 254 ? e : null;
 }
 
-// ── Emailed links (verify a new account / reset a password) ────────
+// ── Emailed links (verify a new account) ───────────────────────────
 
-export type TokenPurpose = 'verify' | 'reset';
+export type TokenPurpose = 'verify';
 
-/**
- * Creates a single-use emailed token. Returns null when too many links were
- * requested recently (1 per minute, 5 per hour per address).
- */
-export async function createEmailToken(email: string, purpose: TokenPurpose, guestId: string | null): Promise<string | null> {
-  const client = await db();
-  const { rows } = await client.execute({
+/** True when too many emails went to this address recently (1 per minute, 5 per hour). */
+async function sentTooRecently(email: string): Promise<boolean> {
+  const { rows } = await (await db()).execute({
     sql: `SELECT
         SUM(created_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 minute')) AS last_minute,
         COUNT(*) AS last_hour
       FROM login_tokens WHERE email = ? AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')`,
     args: [email],
   });
-  if (Number(rows[0]?.last_minute ?? 0) >= 1 || Number(rows[0]?.last_hour ?? 0) >= 5) return null;
+  return Number(rows[0]?.last_minute ?? 0) >= 1 || Number(rows[0]?.last_hour ?? 0) >= 5;
+}
 
+/**
+ * Creates a single-use emailed token. Returns null when too many emails were
+ * requested recently.
+ */
+export async function createEmailToken(email: string, purpose: TokenPurpose, guestId: string | null): Promise<string | null> {
+  if (await sentTooRecently(email)) return null;
+  const client = await db();
   const token = randomBytes(32).toString('base64url');
   await client.execute({
     sql: `INSERT INTO login_tokens (token_hash, email, guest_id, purpose, expires_at)
@@ -64,6 +68,76 @@ export async function consumeEmailToken(token: string, purpose: TokenPurpose): P
 /** Removes a token whose email failed to send, so it doesn't count toward the rate limit. */
 export async function discardEmailToken(token: string) {
   await (await db()).execute({ sql: 'DELETE FROM login_tokens WHERE token_hash = ?', args: [hashToken(token)] });
+}
+
+// ── Emailed codes (reset a password) ───────────────────────────────
+
+/** Wrong guesses allowed before a code stops working. */
+const RESET_CODE_ATTEMPTS = 5;
+
+const hashResetCode = (email: string, code: string) => hashToken(`reset:${email}:${code}`);
+
+/**
+ * Creates a 6-digit password-reset code, replacing any earlier one for the
+ * address. Returns null when too many emails were requested recently.
+ */
+export async function createResetCode(email: string, guestId: string | null): Promise<string | null> {
+  if (await sentTooRecently(email)) return null;
+  const code = randomInt(0, 1_000_000).toString().padStart(6, '0');
+  await (await db()).batch(
+    [
+      { sql: `UPDATE login_tokens SET used_at = ${NOW} WHERE email = ? AND purpose = 'reset' AND used_at IS NULL`, args: [email] },
+      {
+        // REPLACE only matters if the same code was issued to this address before; that row is already used.
+        sql: `INSERT OR REPLACE INTO login_tokens (token_hash, email, guest_id, purpose, expires_at)
+          VALUES (?, ?, ?, 'reset', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+${TOKEN_TTL_MINUTES} minutes'))`,
+        args: [hashResetCode(email, code), email, guestId],
+      },
+    ],
+    'write',
+  );
+  return code;
+}
+
+/**
+ * Checks and uses up the address's current reset code. A wrong guess counts
+ * against the code, which stops working after a few.
+ */
+export async function consumeResetCode(
+  email: string,
+  code: string,
+): Promise<{ ok: true; guestId: string | null } | { ok: false; reason: 'wrong' | 'expired' }> {
+  const client = await db();
+  const { rows } = await client.execute({
+    sql: `SELECT token_hash FROM login_tokens
+      WHERE email = ? AND purpose = 'reset' AND used_at IS NULL AND expires_at > ${NOW}
+      ORDER BY created_at DESC LIMIT 1`,
+    args: [email],
+  });
+  if (!rows[0]) return { ok: false, reason: 'expired' };
+  const stored = String(rows[0].token_hash);
+
+  if (!timingSafeEqual(Buffer.from(stored, 'hex'), Buffer.from(hashResetCode(email, code), 'hex'))) {
+    await client.execute({
+      sql: `UPDATE login_tokens SET attempts = attempts + 1,
+          used_at = CASE WHEN attempts + 1 >= ${RESET_CODE_ATTEMPTS} THEN ${NOW} ELSE used_at END
+        WHERE token_hash = ?`,
+      args: [stored],
+    });
+    return { ok: false, reason: 'wrong' };
+  }
+
+  const used = await client.execute({
+    sql: `UPDATE login_tokens SET used_at = ${NOW} WHERE token_hash = ? AND used_at IS NULL RETURNING guest_id`,
+    args: [stored],
+  });
+  if (!used.rows[0]) return { ok: false, reason: 'expired' };
+  return { ok: true, guestId: used.rows[0].guest_id == null ? null : String(used.rows[0].guest_id) };
+}
+
+/** Removes a code whose email failed to send, so it doesn't count toward the rate limit. */
+export async function discardResetCode(email: string, code: string) {
+  await (await db()).execute({ sql: 'DELETE FROM login_tokens WHERE token_hash = ?', args: [hashResetCode(email, code)] });
 }
 
 // ── Accounts ────────────────────────────────────────────────────────

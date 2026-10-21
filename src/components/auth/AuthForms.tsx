@@ -166,15 +166,7 @@ export function SignupForm({ next }: { next: string }) {
 export function ForgotPasswordForm() {
   const [state, action, pending] = useActionState(forgotPasswordAction, IDLE);
 
-  if (state.status === 'sent') {
-    return (
-      <CheckInbox
-        email={state.email}
-        title="Check your inbox"
-        body="If there's an account for this address, the email has a link to choose a new password."
-      />
-    );
-  }
+  if (state.status === 'sent') return <ResetWithCode email={state.email} />;
 
   return (
     <form action={action} className="space-y-4">
@@ -183,21 +175,65 @@ export function ForgotPasswordForm() {
         <EmailInput />
       </div>
       <ErrorText state={state} />
-      <Submit pending={pending}>Email me a reset link</Submit>
+      <Submit pending={pending}>Email me a code</Submit>
     </form>
   );
 }
 
-export function ResetPasswordForm({ token, next }: { token: string; next: string }) {
+/** Second step of "Forgot password": the emailed 6-digit code plus the new password. */
+function ResetWithCode({ email }: { email: string }) {
   const [state, action, pending] = useActionState(resetPasswordAction, IDLE);
+  const [resendState, resend, resending] = useActionState(forgotPasswordAction, IDLE);
+  // Controlled so the code survives a failed submit.
+  const [code, setCode] = useState('');
+
   return (
-    <form action={action} className="space-y-4">
-      <input type="hidden" name="token" value={token} />
-      <input type="hidden" name="next" value={next} />
-      <PasswordInput id="password" name="password" label="New password" autoComplete="new-password" hint="At least 8 characters, with letters and numbers." />
-      <PasswordInput id="confirm" name="confirm" label="Confirm new password" autoComplete="new-password" />
-      <ErrorText state={state} />
-      <Submit pending={pending}>Save password and log in</Submit>
-    </form>
+    <div className="space-y-5">
+      <div className="text-center">
+        <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-success-soft text-success">
+          <MailCheck className="h-6 w-6" />
+        </span>
+        <p className="mt-3 text-sm text-muted">
+          If there&apos;s an account for <b className="text-ink">{email}</b>, we sent it a 6-digit code. Not there? Check Spam or Promotions.
+        </p>
+      </div>
+
+      <form action={action} className="space-y-4">
+        <input type="hidden" name="email" value={email} />
+        <div>
+          <label htmlFor="code" className="label">Code</label>
+          <input
+            id="code"
+            name="code"
+            className="input h-11 text-center font-mono text-lg tracking-[0.5em]"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="000000"
+            maxLength={6}
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            autoFocus
+            required
+          />
+        </div>
+        <PasswordInput id="password" name="password" label="New password" autoComplete="new-password" hint="At least 8 characters, with letters and numbers." />
+        <PasswordInput id="confirm" name="confirm" label="Confirm new password" autoComplete="new-password" />
+        <ErrorText state={state} />
+        <Submit pending={pending}>Save password and log in</Submit>
+      </form>
+
+      <form action={resend} className="text-center">
+        <input type="hidden" name="email" value={email} />
+        <input type="hidden" name="resend" value="1" />
+        <button className="btn-ghost btn-sm" disabled={resending}>
+          {resending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {resendState.status === 'sent' ? 'Sent a new code ✓' : 'Send a new code'}
+        </button>
+        {resendState.status === 'error' && <p className="mt-1 text-xs text-danger">{resendState.message}</p>}
+        <p className="mt-2 text-xs text-faint">
+          Wrong address? <a href="/forgot-password" className="font-semibold text-accent hover:underline">Use a different email</a>
+        </p>
+      </form>
+    </div>
   );
 }

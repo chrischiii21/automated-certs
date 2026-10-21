@@ -8,7 +8,7 @@ export default function ForgotPasswordPage() {
   return (
     <AuthShell
       title="Forgot your password?"
-      subtitle="Enter your email and we'll send you a link to choose a new one."
+      subtitle="Enter your email and we'll send you a 6-digit code to choose a new one."
       footer={<p><Link href="/login" className="font-semibold text-accent hover:underline">Back to log in</Link></p>}
     >
       <ForgotPasswordForm />

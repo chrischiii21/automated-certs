@@ -35,7 +35,7 @@ export const SCHEMA = [
     email TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL DEFAULT ${NOW}
   )`,
-  // Magic-link tokens. Only a hash is stored; guest_id lets a guest's work move into the new account.
+  // Emailed verify links and reset codes. Only a hash is stored; guest_id lets a guest's work move into the new account.
   `CREATE TABLE IF NOT EXISTS login_tokens (
     token_hash TEXT PRIMARY KEY,
     email TEXT NOT NULL,
@@ -70,8 +70,10 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: 'users', column: 'onboarded_at', definition: 'TEXT' },
   { table: 'users', column: 'password_hash', definition: 'TEXT' },
   { table: 'users', column: 'email_verified_at', definition: 'TEXT' },
-  // What an emailed link is for: 'verify' (confirm a new account) or 'reset' (set a new password).
+  // What an emailed token is for: 'verify' (link to confirm a new account) or 'reset' (6-digit code to set a new password).
   { table: 'login_tokens', column: 'purpose', definition: "TEXT NOT NULL DEFAULT 'verify'" },
+  // Wrong guesses at a 6-digit reset code.
+  { table: 'login_tokens', column: 'attempts', definition: 'INTEGER NOT NULL DEFAULT 0' },
 ];
 
 interface SchemaClient {

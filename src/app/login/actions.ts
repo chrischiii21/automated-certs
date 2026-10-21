@@ -3,11 +3,11 @@
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import {
-  adoptEvents, consumeEmailToken, createEmailToken, discardEmailToken, getUserByEmail, getUserProfile,
-  markEmailVerified, normalizeEmail, setPassword, upsertPendingUser, type TokenPurpose,
+  adoptEvents, consumeEmailToken, consumeResetCode, createEmailToken, createResetCode, discardEmailToken, discardResetCode,
+  getUserByEmail, getUserProfile, markEmailVerified, normalizeEmail, setPassword, upsertPendingUser,
 } from '@/lib/accounts';
 import { getGuestId, startSession } from '@/lib/auth';
-import { sendAuthEmail } from '@/lib/email';
+import { sendAuthEmail, sendResetCode } from '@/lib/email';
 import { hashPassword, passwordProblem, verifyPassword } from '@/lib/password';
 import { clearLoginFailures, loginLockMinutes, recordLoginFailure } from '@/lib/throttle';
 
@@ -39,17 +39,16 @@ async function clientIp(): Promise<string | null> {
 
 const slowDown = () => new Promise((r) => setTimeout(r, 500));
 
-/** Emails a verify or reset link. Returns an error message, or null when sent. */
-async function emailLink(email: string, purpose: TokenPurpose, next: string): Promise<string | null> {
-  const token = await createEmailToken(email, purpose, await getGuestId());
+/** Emails a verification link. Returns an error message, or null when sent. */
+async function emailVerifyLink(email: string, next: string): Promise<string | null> {
+  const token = await createEmailToken(email, 'verify', await getGuestId());
   if (!token) return 'An email was just sent to that address. Please wait a minute and try again.';
-  const path = purpose === 'verify' ? '/auth/verify' : '/auth/reset';
-  const link = `${await appOrigin()}${path}?token=${encodeURIComponent(token)}&next=${encodeURIComponent(next)}`;
+  const link = `${await appOrigin()}/auth/verify?token=${encodeURIComponent(token)}&next=${encodeURIComponent(next)}`;
   try {
-    await sendAuthEmail(email, link, purpose);
+    await sendAuthEmail(email, link, 'verify');
     return null;
   } catch (err) {
-    console.error(`Failed to send ${purpose} email`, err);
+    console.error('Failed to send verify email', err);
     await discardEmailToken(token);
     return "We couldn't send the email right now. Please try again in a moment.";
   }
@@ -77,7 +76,7 @@ export async function signUpAction(_prev: AuthState, formData: FormData): Promis
   const result = await upsertPendingUser(email, await hashPassword(password));
   if (result === 'exists') return { status: 'error', message: 'An account with this email already exists. Log in instead.' };
 
-  const error = await emailLink(email, 'verify', safeNext(formData.get('next')));
+  const error = await emailVerifyLink(email, safeNext(formData.get('next')));
   return error ? { status: 'error', message: error } : { status: 'sent', email };
 }
 
@@ -87,7 +86,7 @@ export async function resendVerificationAction(_prev: AuthState, formData: FormD
   if (!email) return { status: 'error', message: 'Enter a valid email address.' };
   const user = await getUserByEmail(email);
   if (user && !user.verified) {
-    const error = await emailLink(email, 'verify', safeNext(formData.get('next')));
+    const error = await emailVerifyLink(email, safeNext(formData.get('next')));
     if (error) return { status: 'error', message: error };
   }
   return { status: 'sent', email };
@@ -133,13 +132,26 @@ export async function loginAction(_prev: AuthState, formData: FormData): Promise
 
 // ── Forgot / reset password ─────────────────────────────────────────
 
+/** Emails a 6-digit reset code. A "resend" from the code step reports the per-minute limit instead of hiding it. */
 export async function forgotPasswordAction(_prev: AuthState, formData: FormData): Promise<AuthState> {
   const email = normalizeEmail(String(formData.get('email') ?? ''));
   if (!email) return { status: 'error', message: 'Enter a valid email address.' };
+  const resend = formData.get('resend') === '1';
   // Same response whether or not the account exists, so this can't be used to discover accounts.
   if (await getUserByEmail(email)) {
-    const error = await emailLink(email, 'reset', '/admin');
-    if (error && !error.startsWith('An email was just sent')) return { status: 'error', message: error };
+    const code = await createResetCode(email, await getGuestId());
+    if (!code) {
+      // The code from the last email is still good, so the first request can go straight to the code step.
+      if (resend) return { status: 'error', message: 'A code was just sent. Check your inbox, or ask again in a minute.' };
+    } else {
+      try {
+        await sendResetCode(email, code);
+      } catch (err) {
+        console.error('Failed to send reset code', err);
+        await discardResetCode(email, code);
+        return { status: 'error', message: "We couldn't send the email right now. Please try again in a moment." };
+      }
+    }
   } else {
     await slowDown();
   }
@@ -147,17 +159,29 @@ export async function forgotPasswordAction(_prev: AuthState, formData: FormData)
 }
 
 export async function resetPasswordAction(_prev: AuthState, formData: FormData): Promise<AuthState> {
+  const email = normalizeEmail(String(formData.get('email') ?? ''));
+  const code = String(formData.get('code') ?? '').replace(/\D/g, '');
   const password = String(formData.get('password') ?? '');
+  if (!email) return { status: 'error', message: 'Enter a valid email address.' };
+  if (code.length !== 6) return { status: 'error', message: 'Enter the 6-digit code from the email.' };
   const problem = passwordProblem(password);
   if (problem) return { status: 'error', message: problem };
   if (password !== String(formData.get('confirm') ?? '')) return { status: 'error', message: 'The passwords don’t match.' };
 
-  const claim = await consumeEmailToken(String(formData.get('token') ?? ''), 'reset');
-  if (!claim) return { status: 'error', message: 'This reset link has expired. Request a new one.' };
+  const claim = await consumeResetCode(email, code);
+  if (!claim.ok) {
+    await slowDown();
+    return {
+      status: 'error',
+      message: claim.reason === 'wrong'
+        ? 'That code isn’t right. Check the email and try again.'
+        : 'This code has expired or had too many wrong tries. Send a new one.',
+    };
+  }
 
   // Receiving the reset email also proves the address is theirs.
-  const userId = await markEmailVerified(claim.email);
+  const userId = await markEmailVerified(email);
   await setPassword(userId, await hashPassword(password));
-  await clearLoginFailures(claim.email);
-  return finishSignIn(userId, claim.email, claim.guestId, safeNext(formData.get('next')));
+  await clearLoginFailures(email);
+  return finishSignIn(userId, email, claim.guestId, '/admin');
 }
