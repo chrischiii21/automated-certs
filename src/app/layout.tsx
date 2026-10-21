@@ -1,24 +1,39 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, Poppins } from "next/font/google";
+import { Playfair_Display, Plus_Jakarta_Sans } from "next/font/google";
+import { Toaster } from "sonner";
+import { SITE } from "@/lib/site";
 import "./globals.css";
 
-const jakarta = Plus_Jakarta_Sans({ 
+const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
-  variable: '--font-jakarta',
+  variable: "--font-jakarta",
 });
 
-const poppins = Poppins({ 
-  weight: ['400', '600', '700'],
+const playfair = Playfair_Display({
   subsets: ["latin"],
-  variable: '--font-poppins',
+  variable: "--font-playfair",
 });
 
 export const metadata: Metadata = {
-  title: "Certify | Automated Certificates",
-  description: "Generate and distribute professional certificates in seconds.",
+  metadataBase: new URL(SITE.url),
+  title: { default: SITE.title, template: `%s | ${SITE.name}` },
+  description: SITE.description,
+  keywords: SITE.keywords,
+  applicationName: SITE.name,
+  authors: [{ name: SITE.creator }],
+  creator: SITE.creator,
+  publisher: SITE.owner,
+  openGraph: {
+    type: "website",
+    siteName: SITE.name,
+    title: SITE.title,
+    description: SITE.description,
+    url: "/",
+    locale: "en_US",
+  },
+  twitter: { card: "summary_large_image", title: SITE.title, description: SITE.description },
+  alternates: { canonical: "/" },
 };
-
-import { Toaster } from "sonner";
 
 export default function RootLayout({
   children,
@@ -26,10 +41,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${jakarta.variable} ${poppins.variable} font-sans antialiased`}>
+    <html lang="en" className={`${jakarta.variable} ${playfair.variable}`}>
+      <body className="font-sans">
         {children}
-        <Toaster position="top-right" theme="dark" richColors />
+        <Toaster position="top-center" richColors />
       </body>
     </html>
   );

@@ -1,377 +1,270 @@
-"use client";
-
-import React, { useEffect, useState } from 'react';
-import { AdminLayout } from '@/components/admin/AdminLayout';
-import { Plus, Award, Users, Share2, ArrowUpRight, Loader2, X, Image as ImageIcon, Trash2, AlertCircle } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase';
-import { cn } from '../lib/utils';
-import { toast } from 'sonner';
+import {
+  ArrowRight, Award, BadgeCheck, Check, FileSpreadsheet, FileStack, ImageUp, ListChecks, Lock, Palette, Send,
+  ShieldCheck, Smartphone, Sparkles, Table2, Users,
+} from 'lucide-react';
+import { FAQS, SITE } from '@/lib/site';
 
-interface Event {
-  id: string;
-  name: string;
-  template_url: string;
-  claimed_count?: number;
-  status: string;
-}
+export const metadata = { alternates: { canonical: '/' } };
 
-export default function AdminDashboard() {
-  const [events, setEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
-  const [newEvent, setNewEvent] = useState({ name: '', file: null as File | null });
-  const [eventToDelete, setEventToDelete] = useState<string | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
+const FEATURES = [
+  { icon: ShieldCheck, title: 'Only your participants can claim', body: 'Names are checked against your list on the server. Gate-crashers get a polite "not on the list", never a certificate.' },
+  { icon: FileStack, title: 'Bulk create in one click', body: 'Generate every certificate as one print-ready PDF or a ZIP of PNGs. No claim link needed.' },
+  { icon: Sparkles, title: 'AI auto-style', body: 'Picks a font, color and position that match your design, so names look typeset rather than pasted on.' },
+  { icon: Table2, title: 'Spreadsheet-style tracking', body: 'Row numbers, sorting, search, inline edits, claim status and a claims-per-day chart.' },
+  { icon: BadgeCheck, title: 'Branded claim pages', body: 'Your logo and organization name on every claim page, so participants know it’s official.' },
+  { icon: Smartphone, title: 'Built for phones', body: 'Participants type their name, see a live preview and download on any device.' },
+];
 
-  useEffect(() => {
-    fetchEvents();
-  }, []);
+const STEPS = [
+  { icon: ImageUp, title: 'Upload your design', body: 'Any PNG or JPG from Canva, Photoshop or PowerPoint. Leave a blank where the name goes.' },
+  { icon: ListChecks, title: 'Add your participant list', body: 'Paste names or upload a CSV from Excel or Google Sheets.' },
+  { icon: Send, title: 'Share or bulk-create', body: 'Send one claim link, or download every certificate yourself.' },
+];
 
-  const fetchEvents = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('events')
-        .select('*')
-        .order('created_at', { ascending: false });
+const USE_CASES = ['Workshops & trainings', 'Webinars', 'School events', 'Seminars & conferences', 'Fun runs & sports', 'Community & LGU programs', 'Hackathons', 'Volunteer drives'];
 
-      if (error) throw error;
-      setEvents(data || []);
-    } catch (err) {
-      console.error('Error fetching events:', err);
-      toast.error('Failed to load events');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCreateEvent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newEvent.name || !newEvent.file) return;
-
-    setIsCreating(true);
-    const promise = new Promise(async (resolve, reject) => {
-      try {
-        const fileExt = newEvent.file!.name.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt}`;
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('templates')
-          .upload(fileName, newEvent.file!);
-
-        if (uploadError) throw uploadError;
-
-        const { data: { publicUrl } } = supabase.storage
-          .from('templates')
-          .getPublicUrl(fileName);
-
-        const { error: insertError } = await supabase
-          .from('events')
-          .insert([{ 
-            name: newEvent.name, 
-            template_url: publicUrl,
-            status: 'Draft',
-            hotspot_x: 50,
-            hotspot_y: 50,
-            font_size: 64,
-            font_family: 'Plus Jakarta Sans',
-            font_color: '#000000'
-          }]);
-
-        if (insertError) throw insertError;
-
-        setIsModalOpen(false);
-        setNewEvent({ name: '', file: null });
-        fetchEvents();
-        resolve(true);
-      } catch (err) {
-        console.error('Error creating event:', err);
-        reject(err);
-      } finally {
-        setIsCreating(false);
-      }
-    });
-
-    toast.promise(promise, {
-      loading: 'Creating event...',
-      success: 'Event created successfully!',
-      error: 'Failed to create event. Make sure you have a "templates" bucket.',
-    });
-  };
-
-  const handleDeleteEvent = async () => {
-    if (!eventToDelete) return;
-
-    setIsDeleting(true);
-    try {
-      const { error } = await supabase
-        .from('events')
-        .delete()
-        .eq('id', eventToDelete);
-
-      if (error) throw error;
-      
-      toast.success('Event deleted successfully');
-      fetchEvents();
-      setEventToDelete(null);
-    } catch (err) {
-      console.error('Error deleting event:', err);
-      toast.error('Failed to delete event');
-    } finally {
-      setIsDeleting(false);
-    }
-  };
+export default function LandingPage() {
+  const jsonLd = [
+    {
+      '@context': 'https://schema.org',
+      '@type': 'SoftwareApplication',
+      name: SITE.name,
+      url: SITE.url,
+      applicationCategory: 'BusinessApplication',
+      operatingSystem: 'Web',
+      description: SITE.description,
+      offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+      author: { '@type': 'Person', name: SITE.creator },
+      publisher: { '@type': 'Organization', name: SITE.owner },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: FAQS.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+    },
+  ];
 
   return (
-    <AdminLayout>
-      <div className="p-10 max-w-7xl mx-auto space-y-10">
-        <header className="flex justify-between items-end">
-          <div className="space-y-1">
-            <h1 className="text-4xl font-bold gradient-text">Overview</h1>
-            <p className="text-muted-foreground">Manage your events and certificate templates.</p>
+    <div className="min-h-screen overflow-x-hidden">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }} />
+
+      {/* Nav */}
+      <header className="sticky top-0 z-30 border-b border-transparent bg-canvas/80 backdrop-blur">
+        <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6" aria-label="Main">
+          <Link href="/" className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-ink text-canvas"><Award className="h-4.5 w-4.5" /></span>
+            <span className="font-display text-xl font-semibold tracking-tight">{SITE.name}</span>
+          </Link>
+          <div className="hidden items-center gap-7 text-sm font-medium text-muted md:flex">
+            <a href="#how-it-works" className="hover:text-ink">How it works</a>
+            <a href="#features" className="hover:text-ink">Features</a>
+            <a href="#faq" className="hover:text-ink">FAQ</a>
           </div>
-          <button 
-            onClick={() => setIsModalOpen(true)}
-            className="bg-white text-black px-6 py-3 rounded-2xl font-semibold flex items-center gap-2 hover:bg-white/90 transition-all active:scale-95"
-          >
-            <Plus className="w-5 h-5" />
-            New Event
-          </button>
-        </header>
-
-        {loading ? (
-          <div className="flex flex-col items-center justify-center h-64 gap-4">
-            <Loader2 className="w-10 h-10 text-primary animate-spin" />
-            <p className="text-sm text-muted-foreground animate-pulse">Fetching your events...</p>
+          <div className="flex items-center gap-2">
+            <Link href="/login" className="btn-ghost btn-sm hidden sm:inline-flex">Log in</Link>
+            <Link href="/admin" className="btn-primary btn-sm">Start free</Link>
           </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bento-card col-span-1 md:col-span-2 flex flex-col justify-between min-h-[200px]">
-                <div className="flex justify-between items-start">
-                  <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center border border-white/10">
-                    <Users className="text-white w-6 h-6" />
-                  </div>
-                  <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Total Claims</span>
-                </div>
-                <div>
-                  <div className="text-5xl font-bold mb-1">0</div>
-                  <p className="text-sm text-muted-foreground font-medium">No claims recorded yet</p>
-                </div>
-              </div>
+        </nav>
+      </header>
 
-              <div className="bento-card flex flex-col justify-between min-h-[200px]">
-                <div className="flex justify-between items-start">
-                  <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center border border-white/10">
-                    <Award className="text-white w-6 h-6" />
-                  </div>
-                  <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Active Templates</span>
-                </div>
-                <div>
-                  <div className="text-5xl font-bold mb-1">{events.length}</div>
-                  <p className="text-sm text-muted-foreground font-medium">Ready for distribution</p>
-                </div>
+      <main>
+        {/* Hero */}
+        <section className="relative">
+          <div className="pointer-events-none absolute inset-x-0 -top-24 h-[36rem] bg-[radial-gradient(ellipse_at_top,rgba(51,70,211,0.16),transparent_60%)]" />
+          <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-4 pb-20 pt-14 sm:px-6 lg:grid-cols-2 lg:pb-28 lg:pt-20">
+            <div>
+              <p className="inline-flex items-center gap-2 rounded-full border bg-surface px-3 py-1 text-xs font-semibold text-muted shadow-card">
+                <span className="h-1.5 w-1.5 rounded-full bg-success" /> Free to start · no credit card
+              </p>
+              <h1 className="mt-5 font-display text-4xl font-semibold leading-[1.05] tracking-tight text-balance sm:text-6xl">
+                Certificates only your <span className="text-accent">real participants</span> can claim.
+              </h1>
+              <p className="mt-5 max-w-xl text-lg leading-relaxed text-muted">
+                Upload your design, add your participant list and share one link. Each person types their name, Certify checks it
+                against your list, and they download a certificate with their name already on it.
+              </p>
+              <div className="mt-8 flex flex-wrap gap-3">
+                <Link href="/admin" className="btn-primary h-12 px-6 text-base shadow-pop">
+                  Create certificates free <ArrowRight className="h-4 w-4" />
+                </Link>
+                <a href="#how-it-works" className="btn-secondary h-12 px-6 text-base">See how it works</a>
               </div>
+              <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted">
+                {['No sign-up to try', 'PDF & ZIP bulk export', 'Works on any phone'].map((t) => (
+                  <li key={t} className="flex items-center gap-1.5"><Check className="h-4 w-4 text-success" /> {t}</li>
+                ))}
+              </ul>
             </div>
 
-            <div className="space-y-6">
-              <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-bold">Recent Events</h2>
-              </div>
-              
-              <div className="grid grid-cols-1 gap-4">
-                {events.length === 0 ? (
-                  <div className="bento-card p-12 text-center text-muted-foreground flex flex-col items-center gap-4">
-                    <Award className="w-12 h-12 opacity-20" />
-                    <p>No events found. Create your first event to get started!</p>
-                  </div>
-                ) : (
-                  events.map((event, index) => (
-                    <motion.div
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.1 }}
-                      key={event.id}
-                      className="group bento-card p-4 flex items-center justify-between hover:border-primary/30"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20">
-                          <Award className="text-primary w-6 h-6" />
-                        </div>
-                        <div>
-                          <h3 className="font-bold text-lg group-hover:text-primary transition-colors">{event.name}</h3>
-                          <p className="text-sm text-muted-foreground">ID: {event.id.slice(0, 8)}...</p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center gap-4">
-                        <div className={cn(
-                          "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border",
-                          event.status === 'Active' 
-                            ? "bg-green-500/10 text-green-400 border-green-500/20" 
-                            : "bg-orange-500/10 text-orange-400 border-orange-500/20"
-                        )}>
-                          {event.status}
-                        </div>
-                        
-                        <div className="flex items-center gap-2">
-                          <button 
-                            onClick={() => {
-                              const url = `${window.location.origin}/claim/${event.id}`;
-                              navigator.clipboard.writeText(url);
-                              toast.success('Claim link copied!');
-                            }}
-                            className="p-2 rounded-lg hover:bg-white/5 text-muted-foreground hover:text-white transition-all" 
-                            title="Copy link"
-                          >
-                            <Share2 className="w-5 h-5" />
-                          </button>
-                          <Link 
-                            href={`/admin/editor/${event.id}`}
-                            className="bg-white/5 hover:bg-white/10 px-4 py-2 rounded-xl border border-white/10 font-medium transition-all text-sm"
-                          >
-                            Edit
-                          </Link>
-                          <button 
-                            onClick={() => setEventToDelete(event.id)}
-                            className="p-2 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
-                            title="Delete event"
-                          >
-                            <Trash2 className="w-5 h-5" />
-                          </button>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))
-                )}
-              </div>
+            <HeroVisual />
+          </div>
+        </section>
+
+        {/* How it works */}
+        <section id="how-it-works" className="scroll-mt-20 border-y bg-surface py-20">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6">
+            <SectionHeading eyebrow="How it works" title="From design to delivered in three steps" />
+            <ol className="mt-12 grid gap-6 md:grid-cols-3">
+              {STEPS.map((s, i) => (
+                <li key={s.title} className="relative rounded-2xl border bg-canvas p-6">
+                  <span className="absolute right-5 top-4 font-display text-5xl font-semibold text-line">{i + 1}</span>
+                  <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-white shadow-card"><s.icon className="h-5 w-5" /></span>
+                  <h3 className="mt-5 text-lg font-bold">{s.title}</h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-muted">{s.body}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        {/* Features */}
+        <section id="features" className="scroll-mt-20 py-20">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6">
+            <SectionHeading eyebrow="Features" title="Everything you need to issue certificates properly" />
+            <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {FEATURES.map((f) => (
+                <article key={f.title} className="card p-6 transition-shadow hover:shadow-pop">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-soft text-accent"><f.icon className="h-5 w-5" /></span>
+                  <h3 className="mt-4 font-bold">{f.title}</h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-muted">{f.body}</p>
+                </article>
+              ))}
             </div>
-          </>
-        )}
+          </div>
+        </section>
 
-        {/* New Event Modal */}
-        <AnimatePresence>
-          {isModalOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
-              <motion.div 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setIsModalOpen(false)}
-                className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-              />
-              <motion.div 
-                initial={{ scale: 0.9, opacity: 0, y: 20 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                className="relative w-full max-w-lg glass p-8 rounded-3xl space-y-6 shadow-2xl border border-white/10"
-              >
-                <div className="flex justify-between items-center">
-                  <h2 className="text-2xl font-bold">New Event</h2>
-                  <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                    <X className="w-6 h-6" />
-                  </button>
-                </div>
-
-                <form onSubmit={handleCreateEvent} className="space-y-6">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-muted-foreground uppercase">Event Name</label>
-                    <input 
-                      type="text" 
-                      required
-                      placeholder="e.g. Design Hackathon 2024"
-                      value={newEvent.name}
-                      onChange={e => setNewEvent({ ...newEvent, name: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:ring-2 ring-primary transition-all"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-muted-foreground uppercase">Certificate Template</label>
-                    <div className="relative group">
-                      <input 
-                        type="file" 
-                        accept="image/*"
-                        required
-                        onChange={e => setNewEvent({ ...newEvent, file: e.target.files?.[0] || null })}
-                        className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                      />
-                      <div className="border-2 border-dashed border-white/10 rounded-2xl p-10 text-center group-hover:border-primary/50 transition-all flex flex-col items-center gap-3 bg-white/[0.02]">
-                        {newEvent.file ? (
-                          <>
-                            <ImageIcon className="w-12 h-12 text-primary" />
-                            <p className="font-medium text-sm">{newEvent.file.name}</p>
-                          </>
-                        ) : (
-                          <>
-                            <Plus className="w-12 h-12 text-muted-foreground group-hover:scale-110 transition-transform" />
-                            <div className="space-y-1">
-                              <p className="text-sm font-medium">Drop your certificate image here</p>
-                              <p className="text-xs text-muted-foreground">PNG or JPG, up to 10MB</p>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <button 
-                    type="submit"
-                    disabled={isCreating}
-                    className="w-full bg-white text-black py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-white/90 active:scale-[0.98] transition-all disabled:opacity-50"
-                  >
-                    {isCreating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
-                    Create Event
-                  </button>
-                </form>
-              </motion.div>
+        {/* Two ways to deliver */}
+        <section className="pb-20">
+          <div className="mx-auto grid max-w-6xl gap-5 px-4 sm:px-6 md:grid-cols-2">
+            <div className="rounded-3xl bg-ink p-8 text-canvas">
+              <Lock className="h-6 w-6 text-[#93a3ff]" />
+              <h3 className="mt-4 font-display text-2xl font-semibold">Share a claim link</h3>
+              <p className="mt-2 text-canvas/70">
+                Participants enter their name and download their own certificate. Unlisted names are turned away, and you can see who
+                has claimed in real time.
+              </p>
             </div>
-          )}
-        </AnimatePresence>
-
-        {/* Delete Confirmation Modal */}
-        <AnimatePresence>
-          {eventToDelete && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-              <motion.div 
-                initial={{ scale: 0.9, opacity: 0, y: 20 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                className="relative w-full max-w-md glass p-8 rounded-3xl space-y-6 border border-white/10"
-              >
-                <div className="flex flex-col items-center text-center gap-4">
-                  <div className="w-16 h-16 rounded-2xl bg-destructive/10 flex items-center justify-center border border-destructive/20">
-                    <AlertCircle className="text-destructive w-8 h-8" />
-                  </div>
-                  <div className="space-y-2">
-                    <h2 className="text-2xl font-bold">Delete Event?</h2>
-                    <p className="text-muted-foreground">This action cannot be undone. All claims associated with this event will be permanently removed.</p>
-                  </div>
-                </div>
-
-                <div className="flex gap-3">
-                  <button 
-                    onClick={() => setEventToDelete(null)}
-                    className="flex-1 px-6 py-4 rounded-2xl bg-white/5 hover:bg-white/10 font-bold transition-all"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={handleDeleteEvent}
-                    disabled={isDeleting}
-                    className="flex-1 px-6 py-4 rounded-2xl bg-destructive text-white hover:bg-destructive/90 font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {isDeleting && <Loader2 className="w-5 h-5 animate-spin" />}
-                    Delete
-                  </button>
-                </div>
-              </motion.div>
+            <div className="rounded-3xl border bg-surface p-8">
+              <FileSpreadsheet className="h-6 w-6 text-accent" />
+              <h3 className="mt-4 font-display text-2xl font-semibold">Or bulk-create them all</h3>
+              <p className="mt-2 text-muted">
+                Prefer to send them yourself? Generate every certificate as one PDF for printing, or a ZIP of images to email or upload.
+              </p>
             </div>
-          )}
-        </AnimatePresence>
+          </div>
+        </section>
+
+        {/* Use cases */}
+        <section className="border-y bg-surface py-16">
+          <div className="mx-auto max-w-6xl px-4 text-center sm:px-6">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-muted">Made for organizers of</h2>
+            <ul className="mt-6 flex flex-wrap justify-center gap-2.5">
+              {USE_CASES.map((u) => (
+                <li key={u} className="rounded-full border bg-canvas px-4 py-2 text-sm font-medium">{u}</li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section id="faq" className="scroll-mt-20 py-20">
+          <div className="mx-auto max-w-3xl px-4 sm:px-6">
+            <SectionHeading eyebrow="FAQ" title="Questions organizers ask" />
+            <div className="mt-10 divide-y rounded-2xl border bg-surface">
+              {FAQS.map((f) => (
+                <details key={f.q} className="group px-5 py-4 [&_summary::-webkit-details-marker]:hidden">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-semibold">
+                    <h3>{f.q}</h3>
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sunken text-muted transition-transform group-open:rotate-45">+</span>
+                  </summary>
+                  <p className="mt-2 text-sm leading-relaxed text-muted">{f.a}</p>
+                </details>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Final CTA */}
+        <section className="px-4 pb-20 sm:px-6">
+          <div className="relative mx-auto max-w-6xl overflow-hidden rounded-3xl bg-ink px-6 py-16 text-center text-canvas sm:px-12">
+            <div className="pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-accent/50 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-28 -right-10 h-72 w-72 rounded-full bg-success/25 blur-3xl" />
+            <h2 className="relative font-display text-3xl font-semibold tracking-tight text-balance sm:text-5xl">Your next event&apos;s certificates, sorted.</h2>
+            <p className="relative mx-auto mt-3 max-w-lg text-canvas/70">Try it now with no account. Sign up free when you&apos;re ready to share.</p>
+            <Link href="/admin" className="btn relative mt-8 h-12 bg-canvas px-6 text-base text-ink hover:bg-white">
+              Create certificates free <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+        </section>
+      </main>
+
+      <footer className="border-t">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-8 text-sm text-muted sm:flex-row sm:px-6">
+          <div className="flex items-center gap-2">
+            <Award className="h-4 w-4" />
+            <span>© {new Date().getFullYear()} {SITE.name} by <span className="font-semibold text-ink">{SITE.owner}</span></span>
+          </div>
+          <nav className="flex gap-5" aria-label="Footer">
+            <a href="#features" className="hover:text-ink">Features</a>
+            <a href="#faq" className="hover:text-ink">FAQ</a>
+            <Link href="/login" className="hover:text-ink">Log in</Link>
+            <Link href="/admin" className="hover:text-ink">Start free</Link>
+          </nav>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+function SectionHeading({ eyebrow, title }: { eyebrow: string; title: string }) {
+  return (
+    <div className="mx-auto max-w-2xl text-center">
+      <p className="text-sm font-semibold text-accent">{eyebrow}</p>
+      <h2 className="mt-2 font-display text-3xl font-semibold tracking-tight text-balance sm:text-4xl">{title}</h2>
+    </div>
+  );
+}
+
+/** A certificate mock-up with floating proof points. Pure HTML, so it costs nothing to load. */
+function HeroVisual() {
+  return (
+    <div className="relative mx-auto w-full max-w-lg lg:max-w-none" aria-hidden>
+      <div className="absolute -inset-6 rounded-[2rem] bg-gradient-to-br from-accent/15 via-transparent to-success/15 blur-2xl" />
+      <div className="relative rotate-[1.5deg] rounded-2xl bg-surface p-2.5 shadow-pop">
+        <div className="relative aspect-[1.414/1] overflow-hidden rounded-xl border-[6px] border-[#c9a55a] bg-[#fbf8ef] p-[6%] text-center">
+          <div className="absolute inset-2 rounded-md border border-[#c9a55a]/50" />
+          <p className="font-display text-[clamp(14px,3.4vw,28px)] font-semibold tracking-[0.18em] text-[#2b2a26]">CERTIFICATE</p>
+          <p className="mt-1 text-[clamp(7px,1.3vw,11px)] font-semibold tracking-[0.3em] text-[#9a7b3a]">OF PARTICIPATION</p>
+          <p className="mt-[6%] text-[clamp(7px,1.2vw,10px)] tracking-[0.2em] text-[#6b6860]">PROUDLY PRESENTED TO</p>
+          <p className="mt-[3%] font-display text-[clamp(20px,5vw,42px)] italic text-[#1f5c33]">Juan Dela Cruz</p>
+          <div className="mx-auto h-px w-2/3 bg-[#c9a55a]" />
+          <p className="mx-auto mt-[4%] max-w-[80%] text-[clamp(6px,1.1vw,10px)] leading-relaxed text-[#6b6860]">
+            for active participation in the Web Development Bootcamp 2026
+          </p>
+        </div>
       </div>
-    </AdminLayout>
+
+      <div className="absolute -left-3 top-8 flex items-center gap-2.5 rounded-xl bg-surface px-3.5 py-2.5 shadow-pop sm:-left-8">
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-success-soft text-success"><Check className="h-4 w-4" /></span>
+        <div className="text-left">
+          <p className="text-xs font-semibold">Juan Dela Cruz</p>
+          <p className="text-[11px] text-success">Verified on the list</p>
+        </div>
+      </div>
+
+      <div className="absolute -bottom-6 -right-2 w-56 rounded-xl bg-surface p-3.5 shadow-pop sm:-right-6">
+        <div className="flex items-center justify-between text-xs">
+          <span className="flex items-center gap-1.5 font-semibold"><Users className="h-3.5 w-3.5 text-accent" /> 248 participants</span>
+          <span className="font-semibold text-success">82%</span>
+        </div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-success-soft"><div className="h-full w-[82%] rounded-full bg-success" /></div>
+        <p className="mt-1.5 text-[11px] text-muted">203 certificates claimed</p>
+      </div>
+
+      <div className="absolute -top-4 right-6 hidden items-center gap-1.5 rounded-full bg-ink px-3 py-1.5 text-xs font-semibold text-canvas shadow-pop sm:flex">
+        <Palette className="h-3.5 w-3.5" /> Auto-styled
+      </div>
+    </div>
   );
 }

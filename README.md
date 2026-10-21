@@ -1,36 +1,33 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Certify
 
-## Getting Started
+Certificates that only the people on your participant list can claim.
 
-First, run the development server:
+**Organizers** (`/admin`): anyone can try one event as a guest. A free account (email + password; the email is verified once with an emailed link) unlocks sharing claim links, bulk create, AI auto-style and unlimited events. Guest work moves into the account on sign-up.
+
+1. Create an event, upload the certificate design, and optionally add your logo and organization name for the claim page.
+2. Place the name: drag it into position, or use **Auto-style** (Groq vision) to pick the font, color and position from your design. Long names shrink to fit.
+3. Import the participant list: paste names or upload a CSV (a `Name` column, or `First name` + `Last name`).
+4. Click **Open claiming** and share the link. The participant list shows who has claimed, and you can export it as CSV.
+
+**Participants** (`/claim/<event-id>`) enter their name. The server checks it against the list,
+ignoring case, accents, punctuation and extra spaces. If it matches, they download a PNG with the name exactly
+as the organizer listed it. The list itself is never sent to the browser.
+
+## Stack
+
+Next.js 16 (App Router, Server Actions) · Turso / libSQL · Vercel Blob · Tailwind CSS 4
+
+## Local development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
+cp .env.example .env.local   # set at least BLOB_READ_WRITE_TOKEN; add GMAIL_* to send real verification and password-reset emails
+bun install
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+If `TURSO_DATABASE_URL` is empty, the app uses a local SQLite file (`local.db`). Without Gmail credentials in development, verification and reset links are printed in the terminal running `bun dev`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The public landing page is `/`, with `/robots.txt`, `/sitemap.xml` and `/llms.txt` generated from `src/lib/site.ts`.
+Uploading templates always needs a Vercel Blob token.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See [deployment_guide.md](deployment_guide.md) for production setup and migrating from Supabase.

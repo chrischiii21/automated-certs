@@ -1,256 +1,346 @@
 "use client";
 
-import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Move, Settings, Type, Maximize, Palette, Save, Download, Award } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import { AlignCenterHorizontal, Loader2, MoveHorizontal, Save, Sparkles } from 'lucide-react';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { saveLayoutAction, suggestStyleAction } from '@/app/admin/actions';
+import { CERTIFICATE_FONTS, drawCertificate, fittedFontSize, loadFont, loadImage, suggestColors } from '@/lib/certificate';
+import type { NameLayout } from '@/lib/types';
 
-interface Hotspot {
-  x: number; // Percentage
-  y: number; // Percentage
-  fontSize: number;
-  fontFamily: string;
-  color: string;
-}
-
-interface CanvasEditorProps {
+interface Props {
+  eventId: string;
   templateUrl: string;
-  initialHotspot?: Hotspot;
-  onSave?: (hotspot: Hotspot) => void;
+  initialLayout: NameLayout;
+  participantNames: string[];
+  aiEnabled: boolean;
+  isGuest: boolean;
 }
 
-export function CanvasEditor({ templateUrl, initialHotspot, onSave }: CanvasEditorProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [image, setImage] = useState<HTMLImageElement | null>(null);
-  const [hotspot, setHotspot] = useState<Hotspot>(initialHotspot || {
-    x: 50,
-    y: 50,
-    fontSize: 40,
-    fontFamily: 'Plus Jakarta Sans',
-    color: '#000000'
-  });
-  const [isDragging, setIsDragging] = useState(false);
-  const [scale, setScale] = useState(1);
-  const [nameText, setNameText] = useState("John Doe");
+const SNAP = 1.2; // % distance at which the name snaps to the horizontal center
 
-  // Load image
+export function CanvasEditor({ eventId, templateUrl, initialLayout, participantNames, aiEnabled, isGuest }: Props) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const dragOffset = useRef<{ dx: number; dy: number } | null>(null);
+  // Keyed by URL so a replaced template shows the loader until the new image arrives.
+  const [loaded, setLoaded] = useState<{ url: string; img: HTMLImageElement | null } | null>(null);
+  const img = loaded?.url === templateUrl ? loaded.img : null;
+  const imgError = loaded?.url === templateUrl && !loaded.img;
+  const [layout, setLayout] = useState(initialLayout);
+  const [saved, setSaved] = useState(initialLayout);
+  const [saving, setSaving] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [fontTick, setFontTick] = useState(0);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestionReason, setSuggestionReason] = useState<string | null>(null);
+
+  const longestName = useMemo(
+    () => participantNames.reduce((a, b) => (b.length > a.length ? b : a), ''),
+    [participantNames],
+  );
+  const [previewText, setPreviewText] = useState(longestName || 'Maria Clara de los Santos');
+
+  const dirty = JSON.stringify(layout) !== JSON.stringify(saved);
+  const font = CERTIFICATE_FONTS.find((f) => f.family === layout.fontFamily) ?? CERTIFICATE_FONTS[0];
+  const update = (patch: Partial<NameLayout>) => setLayout((l) => ({ ...l, ...patch }));
+
   useEffect(() => {
-    const img = new Image();
-    img.src = templateUrl;
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      setImage(img);
-    };
+    loadImage(templateUrl).then(
+      (i) => setLoaded({ url: templateUrl, img: i }),
+      () => setLoaded({ url: templateUrl, img: null }),
+    );
   }, [templateUrl]);
 
-  // Render canvas
-  const draw = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !image) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Set canvas dimensions to match image
-    canvas.width = image.width;
-    canvas.height = image.height;
-
-    // Draw background template
-    ctx.drawImage(image, 0, 0);
-
-    // Draw name hotspot
-    const pxX = (hotspot.x / 100) * canvas.width;
-    const pxY = (hotspot.y / 100) * canvas.height;
-
-    ctx.font = `bold ${hotspot.fontSize}px "${hotspot.fontFamily}"`;
-    ctx.fillStyle = hotspot.color;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(nameText, pxX, pxY);
-
-    // Draw helper box if dragging or in edit mode
-    if (isDragging) {
-      ctx.strokeStyle = '#3b82f6';
-      ctx.lineWidth = 2;
-      const textMetrics = ctx.measureText(nameText);
-      const width = textMetrics.width + 20;
-      const height = hotspot.fontSize + 10;
-      ctx.strokeRect(pxX - width / 2, pxY - height / 2, width, height);
-    }
-  }, [image, hotspot, nameText, isDragging]);
+  useEffect(() => {
+    loadFont(layout.fontFamily, layout.fontWeight).then(() => setFontTick((t) => t + 1));
+  }, [layout.fontFamily, layout.fontWeight]);
 
   useEffect(() => {
-    draw();
-  }, [draw]);
+    if (img && canvasRef.current) drawCertificate(canvasRef.current, img, layout, previewText, { guides: true });
+  }, [img, layout, previewText, fontTick]);
 
-  // Handle Dragging
-  const handleMouseDown = (e: React.MouseEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
 
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const mouseY = (e.clientY - rect.top) * (canvas.height / rect.height);
+  const toPercent = (e: React.PointerEvent) => {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    return { x: ((e.clientX - rect.left) / rect.width) * 100, y: ((e.clientY - rect.top) / rect.height) * 100 };
+  };
 
-    const pxX = (hotspot.x / 100) * canvas.width;
-    const pxY = (hotspot.y / 100) * canvas.height;
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!img) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const p = toPercent(e);
+    const halfW = layout.maxWidth / 2;
+    const halfH = ((layout.fontSize * 0.7) / img.naturalHeight) * 100;
+    const insideBox = Math.abs(p.x - layout.x) <= halfW && Math.abs(p.y - layout.y) <= halfH;
+    // Grabbing the name keeps the grab point; clicking elsewhere moves the name there.
+    dragOffset.current = insideBox ? { dx: p.x - layout.x, dy: p.y - layout.y } : { dx: 0, dy: 0 };
+    setDragging(true);
+    if (!insideBox) moveTo(p.x, p.y);
+  };
 
-    // Hit test (simple circle for now)
-    const dist = Math.sqrt((mouseX - pxX) ** 2 + (mouseY - pxY) ** 2);
-    if (dist < 100) {
-      setIsDragging(true);
+  const moveTo = useCallback((px: number, py: number) => {
+    let x = Math.min(100, Math.max(0, px));
+    const y = Math.min(100, Math.max(0, py));
+    if (Math.abs(x - 50) < SNAP) x = 50;
+    setLayout((l) => ({ ...l, x, y }));
+  }, []);
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!dragging || !dragOffset.current) return;
+    const p = toPercent(e);
+    moveTo(p.x - dragOffset.current.dx, p.y - dragOffset.current.dy);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const step = e.shiftKey ? 1 : 0.2;
+    const delta = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+    if (!delta) return;
+    e.preventDefault();
+    setLayout((l) => ({ ...l, x: Math.min(100, Math.max(0, l.x + delta[0])), y: Math.min(100, Math.max(0, l.y + delta[1])) }));
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await saveLayoutAction(eventId, layout);
+      setSaved(layout);
+      toast.success('Design saved');
+    } catch {
+      toast.error('Could not save the design');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || !canvasRef.current) return;
+  // Tell the organizer when the preview name is being shrunk to fit.
+  const shrunkTo = useMemo(() => {
+    if (!img || !previewText) return null;
+    const ctx = document.createElement('canvas').getContext('2d');
+    if (!ctx) return null;
+    const size = fittedFontSize(ctx, layout, previewText, img.naturalWidth);
+    return size < layout.fontSize ? size : null;
+    // fontTick: re-measure once the font has loaded
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [img, layout, previewText, fontTick]);
 
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    
-    let newX = ((e.clientX - rect.left) / rect.width) * 100;
-    let newY = ((e.clientY - rect.top) / rect.height) * 100;
+  // Colors sampled from the design, readable where the name sits.
+  // Rounded so dragging doesn't re-sample the image on every pixel of movement.
+  const boxX = Math.round(layout.x);
+  const boxY = Math.round(layout.y);
+  const boxWidth = Math.round(layout.maxWidth);
+  const palette = useMemo(
+    () => (img ? suggestColors(img, { x: boxX, y: boxY, maxWidth: boxWidth }) : []),
+    [img, boxX, boxY, boxWidth],
+  );
 
-    // Clamp values
-    newX = Math.max(0, Math.min(100, newX));
-    newY = Math.max(0, Math.min(100, newY));
-
-    setHotspot(prev => ({ ...prev, x: newX, y: newY }));
+  const suggest = async () => {
+    if (!img) return;
+    setSuggesting(true);
+    try {
+      const result = await suggestStyleAction(eventId, { width: img.naturalWidth, height: img.naturalHeight }, previewText);
+      setLayout(result.layout);
+      setSuggestionReason(result.reason);
+      toast.success('Suggestion applied. Save the design to keep it.');
+    } catch {
+      toast.error('Could not get a suggestion. Try again in a moment.');
+    } finally {
+      setSuggesting(false);
+    }
   };
 
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
+  const maxFontSize = img ? Math.max(120, Math.round(img.naturalWidth / 6)) : 300;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 h-full min-h-[600px]">
-      {/* Canvas Area */}
-      <div className="lg:col-span-3 flex flex-col gap-4">
-        <div 
-          ref={containerRef}
-          className="relative flex-1 bg-black/40 rounded-3xl border border-white/10 overflow-hidden flex items-center justify-center cursor-crosshair group"
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-        >
-          {!image && (
-            <div className="flex flex-col items-center gap-4 text-muted-foreground animate-pulse">
-              <Award className="w-12 h-12" />
-              <p>Loading template...</p>
-            </div>
-          )}
-          
-          <canvas
-            ref={canvasRef}
-            onMouseDown={handleMouseDown}
-            className="max-w-full max-h-full shadow-2xl transition-transform"
-            style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
-          />
-          
-          {/* Draggable Helper Layer (Optional for smoother interaction) */}
-          <div className="absolute top-4 right-4 flex gap-2">
-            <button className="p-2 glass rounded-lg hover:bg-white/10" title="Zoom In"><Maximize className="w-4 h-4" /></button>
+    <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-12">
+      {/* Stays on screen while the controls scroll, so changes are always visible. */}
+      <div className="lg:sticky lg:top-20 lg:col-span-8">
+        <div className="card overflow-hidden">
+          <div className="flex min-h-60 items-center justify-center bg-[repeating-conic-gradient(var(--color-sunken)_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] p-3">
+            {imgError ? (
+              <p className="text-sm text-danger">The template image could not be loaded.</p>
+            ) : !img ? (
+              <Loader2 className="h-6 w-6 animate-spin text-faint" />
+            ) : null}
+            <canvas
+              ref={canvasRef}
+              tabIndex={0}
+              aria-label="Certificate preview. Drag the name, or use the arrow keys, to position it."
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={() => setDragging(false)}
+              onPointerCancel={() => setDragging(false)}
+              onKeyDown={onKeyDown}
+              className={cn(
+                'h-auto max-h-[70vh] w-auto max-w-full touch-none rounded-md shadow-pop outline-none focus-visible:ring-4 focus-visible:ring-accent/30 lg:max-h-[calc(100vh-10rem)]',
+                !img && 'hidden',
+                dragging ? 'cursor-grabbing' : 'cursor-grab',
+              )}
+            />
           </div>
-          
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 glass px-4 py-2 rounded-full text-xs font-medium text-white/60 pointer-events-none">
-            Drag the name to reposition it
-          </div>
+          <p className="border-t px-4 py-2 text-xs text-muted">
+            Drag the name (or click to move it there). Arrow keys nudge, Shift for bigger steps. Names longer than the dashed box shrink to fit.
+          </p>
         </div>
       </div>
 
-      {/* Settings Panel */}
-      <div className="lg:col-span-1 space-y-6">
-        <div className="bento-card space-y-6">
-          <div className="flex items-center gap-3">
-            <Settings className="w-5 h-5 text-primary" />
-            <h3 className="font-bold">Hotspot Settings</h3>
-          </div>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Preview Name</label>
-              <div className="relative">
-                <Type className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input 
-                  type="text" 
-                  value={nameText}
-                  onChange={(e) => setNameText(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-10 pr-4 focus:ring-2 ring-primary outline-none transition-all"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Font Family</label>
-              <select 
-                value={hotspot.fontFamily}
-                onChange={(e) => setHotspot(prev => ({ ...prev, fontFamily: e.target.value }))}
-                className="w-full bg-white/5 border border-white/10 rounded-xl p-2 outline-none"
-              >
-                <option value="Plus Jakarta Sans">Plus Jakarta Sans</option>
-                <option value="Poppins">Poppins</option>
-                <option value="Inter">Inter</option>
-                <option value="serif">Classic Serif</option>
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex justify-between">
-                <label className="text-xs font-bold text-muted-foreground uppercase">Font Size</label>
-                <span className="text-xs font-mono">{hotspot.fontSize}px</span>
-              </div>
-              <input 
-                type="range" 
-                min="10" 
-                max="200" 
-                value={hotspot.fontSize}
-                onChange={(e) => setHotspot(prev => ({ ...prev, fontSize: parseInt(e.target.value) }))}
-                className="w-full accent-primary"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Color</label>
-              <div className="flex gap-2">
-                <input 
-                  type="color" 
-                  value={hotspot.color}
-                  onChange={(e) => setHotspot(prev => ({ ...prev, color: e.target.value }))}
-                  className="w-12 h-12 rounded-xl bg-transparent border-none cursor-pointer"
-                />
-                <input 
-                  type="text" 
-                  value={hotspot.color}
-                  onChange={(e) => setHotspot(prev => ({ ...prev, color: e.target.value }))}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 outline-none"
-                />
-              </div>
-            </div>
-          </div>
-
-          <hr className="border-white/10" />
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-muted-foreground uppercase">X Position</label>
-              <div className="bg-white/5 rounded-lg p-2 text-center text-sm font-mono border border-white/5">{hotspot.x.toFixed(1)}%</div>
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-muted-foreground uppercase">Y Position</label>
-              <div className="bg-white/5 rounded-lg p-2 text-center text-sm font-mono border border-white/5">{hotspot.y.toFixed(1)}%</div>
-            </div>
-          </div>
-
-          <button 
-            onClick={() => onSave?.(hotspot)}
-            className="w-full bg-white text-black py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-white/90 active:scale-[0.98] transition-all shadow-xl shadow-white/5"
-          >
-            <Save className="w-5 h-5" />
-            Save Configuration
+      <aside className="card divide-y overflow-hidden lg:sticky lg:top-20 lg:col-span-4 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+        <div className="sticky top-0 z-10 flex items-center gap-2 bg-surface/95 px-4 py-3 backdrop-blur">
+          <h3 className="mr-auto text-sm font-bold">Name style</h3>
+          {dirty && (
+            <button className="btn-ghost btn-sm" onClick={() => setLayout(saved)} disabled={saving}>Discard</button>
+          )}
+          <button className="btn-primary btn-sm" onClick={save} disabled={!dirty || saving}>
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            {dirty ? 'Save' : 'Saved'}
           </button>
         </div>
+
+        <section className="space-y-2 bg-gradient-to-b from-accent-soft/60 to-surface p-4">
+          {isGuest ? (
+            <Link href={`/signup?next=${encodeURIComponent(`/admin/events/${eventId}?tab=design`)}`} className="btn-secondary btn-sm w-full">
+              <Sparkles className="h-3.5 w-3.5 text-accent" /> Sign up free to use Auto-style
+            </Link>
+          ) : aiEnabled ? (
+            <button className="btn-primary btn-sm w-full" onClick={suggest} disabled={suggesting || !img}>
+              {suggesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {suggesting ? 'Studying your design…' : 'Auto-style: suggest font, color & position'}
+            </button>
+          ) : (
+            <p className="flex gap-1.5 text-xs text-muted">
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />
+              <span>Add a free <code className="text-ink">GROQ_API_KEY</code> to let AI pick the font, color and position.</span>
+            </p>
+          )}
+          {suggestionReason && <p className="text-xs italic text-muted">“{suggestionReason}”</p>}
+        </section>
+
+        <section className="space-y-2 p-4">
+          <label className="label mb-0" htmlFor="preview-name">Preview name</label>
+          <input id="preview-name" className="input h-9" value={previewText} onChange={(e) => setPreviewText(e.target.value)} placeholder="Type a name" />
+          {longestName && longestName !== previewText && (
+            <button className="text-xs font-semibold text-accent hover:underline" onClick={() => setPreviewText(longestName)}>
+              Try the longest name on your list
+            </button>
+          )}
+          {shrunkTo && <p className="text-xs text-warning">Shrunk to {shrunkTo}px to fit the max width.</p>}
+        </section>
+
+        <section className="space-y-3 p-4">
+          <div>
+            <label className="label" htmlFor="font">Font</label>
+            <div className="flex gap-2">
+              <select
+                id="font"
+                className="input h-9 min-w-0 flex-1"
+                value={layout.fontFamily}
+                onChange={(e) => {
+                  const next = CERTIFICATE_FONTS.find((f) => f.family === e.target.value)!;
+                  update({ fontFamily: next.family, fontWeight: next.weights.includes(layout.fontWeight) ? layout.fontWeight : next.weights.at(-1)! });
+                }}
+              >
+                {CERTIFICATE_FONTS.map((f) => <option key={f.family} value={f.family}>{f.label} — {f.style}</option>)}
+              </select>
+              {font.weights.length > 1 && (
+                <button
+                  onClick={() => update({ fontWeight: layout.fontWeight >= 700 ? 400 : 700 })}
+                  aria-pressed={layout.fontWeight >= 700}
+                  title="Bold"
+                  className={cn(
+                    'h-9 w-9 shrink-0 rounded-lg border text-sm font-bold transition-colors',
+                    layout.fontWeight >= 700 ? 'border-accent bg-accent-soft text-accent' : 'border-line-strong text-muted hover:text-ink',
+                  )}
+                >
+                  B
+                </button>
+              )}
+            </div>
+          </div>
+
+          <Slider id="size" label="Size" value={Math.min(layout.fontSize, maxFontSize)} min={12} max={maxFontSize} suffix="px" onChange={(v) => update({ fontSize: v })} />
+          <Slider
+            id="width"
+            label={<><MoveHorizontal className="h-3.5 w-3.5" /> Max width</>}
+            value={Math.round(layout.maxWidth)}
+            min={10}
+            max={100}
+            suffix="%"
+            onChange={(v) => update({ maxWidth: v })}
+          />
+        </section>
+
+        <section className="space-y-2 p-4">
+          <label className="label mb-0" htmlFor="color">Color</label>
+          <div className="flex items-center gap-2">
+            <input
+              id="color"
+              type="color"
+              value={layout.color}
+              onChange={(e) => update({ color: e.target.value })}
+              className="h-9 w-10 shrink-0 cursor-pointer rounded-lg border border-line-strong bg-surface p-0.5"
+            />
+            <input
+              className="input h-9 w-28 font-mono text-xs uppercase"
+              value={layout.color}
+              maxLength={7}
+              onChange={(e) => update({ color: e.target.value })}
+              aria-label="Hex color"
+            />
+          </div>
+          {palette.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <span className="mr-1 text-xs text-muted">From your design:</span>
+              {palette.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => update({ color: c })}
+                  title={c}
+                  aria-label={`Use color ${c}`}
+                  className={cn(
+                    'h-6 w-6 rounded-full border-2 shadow-card transition-transform hover:scale-110',
+                    layout.color.toLowerCase() === c ? 'border-accent ring-2 ring-accent/30' : 'border-surface',
+                  )}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="flex items-center justify-between gap-2 p-4">
+          <span className="text-xs tabular-nums text-muted">X {layout.x.toFixed(1)}% · Y {layout.y.toFixed(1)}%</span>
+          <button className="btn-secondary btn-sm" onClick={() => update({ x: 50 })} disabled={layout.x === 50}>
+            <AlignCenterHorizontal className="h-3.5 w-3.5" />
+            Center
+          </button>
+        </section>
+      </aside>
+    </div>
+  );
+}
+
+function Slider({ id, label, value, min, max, suffix, onChange }: {
+  id: string;
+  label: React.ReactNode;
+  value: number;
+  min: number;
+  max: number;
+  suffix: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <label className="label mb-0 flex items-center gap-1.5" htmlFor={id}>{label}</label>
+        <span className="text-xs tabular-nums text-muted">{value}{suffix}</span>
       </div>
+      <input id={id} type="range" min={min} max={max} value={value} onChange={(e) => onChange(Number(e.target.value))} className="w-full accent-accent" />
     </div>
   );
 }
