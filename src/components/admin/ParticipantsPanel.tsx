@@ -111,24 +111,7 @@ export function ParticipantsPanel({ event, participants, isGuest }: { event: Cer
     URL.revokeObjectURL(a.href);
   };
 
-  if (participants.length === 0) {
-    return (
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        <div className="lg:col-span-5">
-          <ImportCard eventId={event.id} existingCount={0} />
-        </div>
-        <div className="card flex flex-col items-center justify-center gap-2 px-6 py-16 text-center lg:col-span-7">
-          <Users className="h-8 w-8 text-faint" />
-          <p className="font-semibold">No participants yet</p>
-          <p className="max-w-sm text-sm text-muted">
-            Import your list. Then either open claiming so people download their own certificate, or bulk-create every
-            certificate yourself.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
+  const empty = participants.length === 0;
   const bulkNames = liveSelected.size
     ? visible.filter((p) => liveSelected.has(p.id)).map((p) => p.name)
     : visible.map((p) => p.name);
@@ -165,7 +148,7 @@ export function ParticipantsPanel({ event, participants, isGuest }: { event: Cer
             <button className="btn-secondary btn-sm h-9" onClick={() => setImportOpen(true)}>
               <FileUp className="h-3.5 w-3.5" /> Import
             </button>
-            <button className="btn-secondary btn-sm h-9" onClick={exportCsv}>
+            <button className="btn-secondary btn-sm h-9" onClick={exportCsv} disabled={empty}>
               <Download className="h-3.5 w-3.5" /> Export
             </button>
             {isGuest ? (
@@ -173,7 +156,7 @@ export function ParticipantsPanel({ event, participants, isGuest }: { event: Cer
                 <Sparkles className="h-3.5 w-3.5" /> Sign up to bulk create
               </Link>
             ) : (
-              <button className="btn-primary btn-sm h-9" onClick={() => setBulkOpen(true)}>
+              <button className="btn-primary btn-sm h-9" onClick={() => setBulkOpen(true)} disabled={empty}>
                 <Sparkles className="h-3.5 w-3.5" /> Bulk create
               </button>
             )}
@@ -213,7 +196,23 @@ export function ParticipantsPanel({ event, participants, isGuest }: { event: Cer
                   onToggle={() => toggle(p.id)}
                 />
               ))}
-              {visible.length === 0 && (
+              {empty ? (
+                <tr>
+                  <td colSpan={7} className="border border-line px-6 py-16">
+                    <div className="flex flex-col items-center gap-2 text-center">
+                      <Users className="h-8 w-8 text-faint" />
+                      <p className="font-semibold">No participants yet</p>
+                      <p className="max-w-sm text-sm text-muted">
+                        Import your list or add names one at a time. Then either open claiming so people download their own
+                        certificate, or bulk-create every certificate yourself.
+                      </p>
+                      <button className="btn-primary btn-sm mt-2" onClick={() => setImportOpen(true)}>
+                        <FileUp className="h-3.5 w-3.5" /> Import participants
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : visible.length === 0 && (
                 <tr><td colSpan={7} className="border border-line px-4 py-10 text-center text-sm text-muted">No names match.</td></tr>
               )}
             </tbody>
