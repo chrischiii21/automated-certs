@@ -1,9 +1,26 @@
 Caption (short):
-Not on the list? No certificate. 🎓 Certify: event certificates only your real participants can claim. automate-n-certify.vercel.app
+Not on the list? No certificate. 🎓 Certify: event certificates only your real participants can claim.
+https://automate-n-certify.vercel.app
 
-Post copy:
-Gate-crashers get a polite "not on the list". Your real participants get their certificate, with their name spelled exactly right. Upload your design, add your list, share one link. Free to start, no credit card.
-👉 https://automate-n-certify.vercel.app
+Caption (long):
+Introducing Certify 🎓✨
 
-Hashtags (optional):
+Ever run an event and then spend the weekend typing 200 names onto certificates? Or have someone who never showed up ask for one? 👀
+
+Certify fixes both.
+
+📤 Upload your design from Canva, Photoshop or PowerPoint
+📋 Add your participant list by pasting names or uploading a CSV
+🔗 Share one link. Each person types their name, Certify checks it against your list, and they download their own certificate.
+
+Not on the list? No certificate. 💅
+Typed "jose dela-cruz"? It still matches, and the certificate says José Dela Cruz, exactly as you listed it. ✅
+
+Rather send them yourself? Bulk-create every certificate as one PDF or a ZIP of PNGs. 📦
+
+Perfect for workshops, webinars, school events, hackathons and fun runs. 🏃‍♀️💻
+
+Free to start, no credit card. Try it without even signing up 👇
+https://automate-n-certify.vercel.app
+
 #Certify #EventCertificates #EventOrganizers #Webinars #Workshops
