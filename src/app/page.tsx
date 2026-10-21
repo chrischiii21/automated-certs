@@ -101,6 +101,31 @@ export default function LandingPage() {
           </div>
         </section>
 
+        {/* Promo video: landscape on desktop, vertical on phones */}
+        <section aria-labelledby="video-heading" className="pb-20">
+          <div className="mx-auto max-w-5xl px-4 sm:px-6">
+            <h2 id="video-heading" className="sr-only">See Certify in 30 seconds</h2>
+            <div className="overflow-hidden rounded-3xl border bg-surface p-1.5 shadow-pop sm:p-2">
+              <video
+                className="hidden aspect-video w-full rounded-2xl bg-sunken sm:block"
+                src="/promo/certify-promo-landscape.mp4"
+                poster="/promo/certify-promo-landscape.jpg"
+                controls
+                playsInline
+                preload="none"
+              />
+              <video
+                className="mx-auto block aspect-[9/16] w-full max-w-sm rounded-2xl bg-sunken sm:hidden"
+                src="/promo/certify-promo-vertical.mp4"
+                poster="/promo/certify-promo-vertical.jpg"
+                controls
+                playsInline
+                preload="none"
+              />
+            </div>
+          </div>
+        </section>
+
         {/* How it works */}
         <section id="how-it-works" className="scroll-mt-20 border-y bg-surface py-20">
           <div className="mx-auto max-w-6xl px-4 sm:px-6">

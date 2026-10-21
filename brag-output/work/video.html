@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Certify launch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Plus+Jakarta+Sans:wght@400..800&display=block" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.16"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: { sans: ['"Plus Jakarta Sans"', 'ui-sans-serif', 'sans-serif'], display: ['"Playfair Display"', 'Georgia', 'serif'] },
+      colors: {
+        canvas: '#f6f5f1', surface: '#ffffff', sunken: '#efede6', line: '#e3e0d6', 'line-strong': '#cfcbbe',
+        ink: '#1c1b18', muted: '#6b6860', faint: '#9a968b',
+        accent: '#3346d3', 'accent-hover': '#2636b0', 'accent-soft': '#eceffd',
+        success: '#15803d', 'success-soft': '#e9f7ee', danger: '#c53030', 'danger-soft': '#fdecec',
+      },
+      boxShadow: {
+        card: '0 1px 2px rgb(28 27 24 / 0.04), 0 1px 1px rgb(28 27 24 / 0.03)',
+        pop: '0 12px 32px -8px rgb(28 27 24 / 0.18), 0 2px 6px rgb(28 27 24 / 0.06)',
+      },
+    },
+  },
+};
+</script>
+<style type="text/tailwindcss">
+  * { @apply border-line; }
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; }
+  body { @apply bg-canvas text-ink antialiased font-sans; }
+  .card { @apply rounded-2xl border border-line bg-surface shadow-card; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 h-10 text-sm font-semibold whitespace-nowrap; }
+  .btn-sm { @apply h-8 px-3 text-xs rounded-lg; }
+  .btn-primary { @apply btn bg-accent text-white; }
+  .btn-secondary { @apply btn border border-line-strong bg-surface text-ink; }
+  .input { @apply w-full rounded-xl border border-line-strong bg-surface px-3.5 h-10 text-sm text-ink flex items-center; }
+  .scene { position: absolute; inset: 0; opacity: 0; }
+  .ico { display: inline-block; flex-shrink: 0; }
+  .abs { position: absolute; }
+  .caret { display: inline-block; width: 1.5px; height: 1.15em; background: #3346d3; margin-left: 1px; vertical-align: -0.2em; }
+  .step-num { @apply flex items-center justify-center rounded-2xl bg-accent text-white font-display font-semibold shadow-pop; width: 76px; height: 76px; font-size: 40px; }
+</style>
+<script src="icons.js"></script>
+</head>
+<body>
+<div id="stage" class="relative" style="width:1920px;height:1080px;overflow:hidden">
+  <div class="abs pointer-events-none" style="left:-10%;right:-10%;top:-260px;height:900px;background:radial-gradient(ellipse at top,rgba(51,70,211,0.16),transparent 60%)"></div>
+  <div id="scenes"></div>
+  <svg id="cursor" class="abs" width="40" height="40" viewBox="0 0 24 24" style="left:0;top:0;opacity:0;z-index:50;filter:drop-shadow(0 3px 5px rgb(0 0 0 / .25))">
+    <path d="M4 2.5 L4 19.5 L8.6 15.3 L11.6 21.6 L14.6 20.2 L11.6 14 L17.8 14 Z" fill="#1c1b18" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
+  </svg>
+</div>
+
+<script>
+// ── format: ?format=vertical renders the 1080×1920 cut ───────────────────
+const V = new URLSearchParams(location.search).get('format') === 'vertical';
+const K = V
+  ? { s1Top: 700, s1Scale: 2.1, cx1: 540, s3x: 63, s3y: 880, s4Scale: 1.22, s5x: 122, s5y: 210, s5Scale: 1.9, s6Scale: 2.0 }
+  : { s1Top: 240, s1Scale: 1.7, cx1: 960, s3x: 830, s3y: 200, s4Scale: 1.36, s5x: 150, s5y: 215, s5Scale: 1.42, s6Scale: 1.5 };
+
+// ── helpers ─────────────────────────────────────────────────────────────
+const icon = (n, size = 16, cls = '', sw = 2) =>
+  `<svg class="ico ${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]}</svg>`;
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const eOut = (x) => 1 - Math.pow(1 - x, 3);
+const eInOut = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const eBack = (x) => { const c = 1.6; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+const lerp = (a, b, x) => a + (b - a) * x;
+const $ = (id) => document.getElementById(id);
+const set = (id, css) => Object.assign($(id).style, css);
+// Fade + rise in at time a.
+const rise = (id, t, a, d = 0.45, dy = 24) => {
+  const p = eOut(prog(t, a, a + d));
+  set(id, { opacity: p, transform: `translateY(${(1 - p) * dy}px)` });
+};
+const typed = (s, t, a, b) => s.slice(0, Math.round(prog(t, a, b) * s.length));
+
+// Certificate artwork, the same markup as the landing page's HeroVisual, sized by width.
+function certificate(id, w, name = '') {
+  const k = w / 560;
+  return `
+  <div id="${id}" class="relative overflow-hidden rounded-xl bg-[#fbf8ef] text-center" style="width:${w}px;aspect-ratio:1.414/1;border:${6 * k}px solid #c9a55a;padding:${6}%">
+    <div class="abs rounded-md" style="inset:${8 * k}px;border:1px solid rgb(201 165 90 / .5)"></div>
+    <p class="font-display font-semibold text-[#2b2a26]" style="font-size:${28 * k}px;letter-spacing:.18em;margin-top:${4 * k}px">CERTIFICATE</p>
+    <p class="font-semibold text-[#9a7b3a]" style="font-size:${11 * k}px;letter-spacing:.3em;margin-top:${4 * k}px">OF PARTICIPATION</p>
+    <p class="text-[#6b6860]" style="font-size:${10 * k}px;letter-spacing:.2em;margin-top:${26 * k}px">PROUDLY PRESENTED TO</p>
+    <div style="height:${66 * k}px;margin-top:${10 * k}px" class="relative">
+      <p id="${id}-name" class="font-display italic text-[#1f5c33] whitespace-nowrap abs" style="left:0;right:0;bottom:${6 * k}px;font-size:${42 * k}px;line-height:1.1">${name}</p>
+    </div>
+    <div class="mx-auto bg-[#c9a55a]" style="height:1px;width:66%"></div>
+    <p class="mx-auto text-[#6b6860]" style="max-width:80%;font-size:${10 * k}px;line-height:1.6;margin-top:${16 * k}px">for active participation in the Web Development Bootcamp 2026</p>
+    <div id="${id}-wm" class="abs inset-0" style="opacity:0"></div>
+  </div>`;
+}
+// The claim page's PREVIEW watermark (drawWatermark in lib/certificate.ts), as an SVG pattern.
+function watermark(w) {
+  const size = Math.round(w / 14), sx = size * 6, sy = size * 2.6;
+  return `<svg width="100%" height="100%"><defs><pattern id="wmp" width="${sx}" height="${sy * 2}" patternUnits="userSpaceOnUse" patternTransform="rotate(-25.7)">
+    <text x="${sx / 2}" y="${sy * 0.5}" text-anchor="middle" dominant-baseline="middle" font-family="Plus Jakarta Sans" font-weight="700" font-size="${size}" fill="rgba(120,120,120,0.16)">PREVIEW</text>
+    <text x="0" y="${sy * 1.5}" text-anchor="middle" dominant-baseline="middle" font-family="Plus Jakarta Sans" font-weight="700" font-size="${size}" fill="rgba(120,120,120,0.16)">PREVIEW</text>
+    <text x="${sx}" y="${sy * 1.5}" text-anchor="middle" dominant-baseline="middle" font-family="Plus Jakarta Sans" font-weight="700" font-size="${size}" fill="rgba(120,120,120,0.16)">PREVIEW</text>
+  </pattern></defs><rect width="100%" height="100%" fill="url(#wmp)"/></svg>`;
+}
+const stepHead = (id, n, title, sub) => `
+  <div id="${id}" class="abs" style="left:150px;top:0;bottom:0;width:560px;display:flex;flex-direction:column;justify-content:center">
+    <div id="${id}-n" class="step-num">${n}</div>
+    <h2 id="${id}-t" class="font-display font-semibold tracking-tight" style="font-size:78px;line-height:1.04;margin-top:34px">${title}</h2>
+    <p id="${id}-s" class="text-muted" style="font-size:30px;line-height:1.4;margin-top:22px">${sub}</p>
+  </div>`;
+
+const NAMES = ['Maria Santos', 'José Dela Cruz', 'Aiko Tanaka', "Liam O'Connor", 'Priya Raman', 'Juan Dela Cruz', 'Grace Villanueva', 'Noah Bennett', 'Sofia Reyes', 'Daniel Okafor'];
+
+// ── scenes ──────────────────────────────────────────────────────────────
+$('scenes').innerHTML = `
+<!-- 1 · hook: a gate-crasher -->
+<section id="s1" class="scene">
+  <h1 id="s1-h" class="abs text-center font-display font-semibold tracking-tight" style="left:0;right:0;top:92px;font-size:92px;line-height:1">
+    <span id="s1-a" style="display:inline-block">Not on the list?</span>
+    <span id="s1-b" class="text-danger" style="display:inline-block">No certificate.</span>
+  </h1>
+  <div class="abs" style="left:50%;top:240px;width:440px;transform-origin:top center" id="s1-wrap">
+    <div class="card p-6" id="s1-card">
+      <div class="flex items-center gap-3 mb-5">
+        <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-canvas text-accent">${icon('award', 20)}</span>
+        <div><p class="text-sm font-semibold">Web Development Bootcamp 2026</p><p class="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Official certificate</p></div>
+      </div>
+      <label class="block text-sm font-semibold">Your full name</label>
+      <p class="mt-0.5 text-xs text-muted">Enter it the way you registered for the event.</p>
+      <div id="s1-input" class="input h-12 text-base mt-4"><span id="s1-text"></span><span id="s1-caret" class="caret"></span><span id="s1-ph" class="text-faint">e.g. Juan Dela Cruz</span></div>
+      <div id="s1-alert-wrap" style="overflow:hidden;height:0">
+        <div class="flex gap-2.5 rounded-xl bg-danger-soft p-3 text-sm text-danger mt-4">
+          ${icon('circle-alert', 16, 'mt-0.5')}
+          <div>
+            <p class="font-semibold">&ldquo;Definitely Attended&rdquo; isn&rsquo;t on the participant list.</p>
+            <p class="mt-1" style="color:rgb(197 48 48 / .8)">Check the spelling, or try your full registered name.</p>
+          </div>
+        </div>
+      </div>
+      <button id="s1-btn" class="btn-primary h-12 w-full text-base mt-4">
+        <span id="s1-btn-a" class="inline-flex items-center gap-2">Get my certificate ${icon('arrow-right', 20)}</span>
+        <span id="s1-btn-b" class="inline-flex items-center gap-2" style="display:none"><span id="s1-spin" style="display:inline-flex">${icon('loader-circle', 20)}</span> Checking the list…</span>
+      </button>
+      <p class="mt-4 flex items-start gap-1.5 text-xs text-muted">${icon('shield-check', 14, 'mt-px text-success')} Certificates are only issued to registered participants on the organizer&rsquo;s list.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 2 · reveal -->
+<section id="s2" class="scene">
+  <div class="abs text-center" style="left:0;right:0;top:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+    <div id="s2-logo" class="flex items-center gap-5">
+      <span class="flex items-center justify-center rounded-2xl bg-ink text-canvas" style="width:96px;height:96px">${icon('award', 54)}</span>
+      <span class="font-display font-semibold tracking-tight" style="font-size:110px;line-height:1">Certify</span>
+    </div>
+    <h1 id="s2-h" class="font-display font-semibold tracking-tight" style="font-size:80px;line-height:1.08;margin-top:70px;max-width:1500px">
+      <span id="s2-w0">Certificates only your</span> <span id="s2-w1" class="text-accent">real participants</span> <span id="s2-w2">can claim.</span>
+    </h1>
+    <p id="s2-pill" class="inline-flex items-center gap-3 rounded-full border bg-surface shadow-card text-muted font-semibold" style="margin-top:56px;padding:12px 26px;font-size:24px">
+      <span class="rounded-full bg-success" style="width:10px;height:10px"></span> Free to start · no credit card
+    </p>
+  </div>
+</section>
+
+<!-- 3 · upload your design -->
+<section id="s3" class="scene">
+  ${stepHead('s3h', 1, 'Upload your design', 'Any PNG or JPG from Canva, Photoshop or PowerPoint. Then place the name.')}
+  <div id="s3-card" class="abs rounded-2xl bg-surface shadow-pop" style="left:830px;top:200px;padding:12px">
+    ${certificate('s3c', 930)}
+    <div id="s3-box" class="abs flex items-center justify-center" style="border:2.5px dashed #3346d3;border-radius:8px;background:rgb(51 70 211 / .06);width:520px;height:96px">
+      <span id="s3-plain" class="abs font-semibold text-muted" style="font-size:34px">Your Name</span>
+      <span id="s3-styled" class="abs font-display italic text-[#1f5c33]" style="font-size:66px;opacity:0;white-space:nowrap">Your Name</span>
+      ${[[0, 0], [1, 0], [0, 1], [1, 1]].map(([x, y]) => `<span class="abs bg-surface" style="width:14px;height:14px;border:2.5px solid #3346d3;border-radius:3px;left:${x ? 'auto' : '-8px'};right:${x ? '-8px' : 'auto'};top:${y ? 'auto' : '-8px'};bottom:${y ? '-8px' : 'auto'}"></span>`).join('')}
+    </div>
+  </div>
+  <div id="s3-pill" class="abs flex items-center gap-2 rounded-full bg-ink text-canvas font-semibold shadow-pop" style="left:1520px;top:166px;padding:12px 22px;font-size:22px">${icon('palette', 22)} Auto-styled</div>
+</section>
+
+<!-- 4 · add your list -->
+<section id="s4" class="scene">
+  ${stepHead('s4h', 2, 'Add your participant list', 'Paste names, or upload a CSV from Excel or Google Sheets.')}
+  <div id="s4-wrap" class="abs" style="left:770px;top:250px;width:784px;transform:scale(1.36);transform-origin:top left">
+    <section class="card overflow-hidden">
+      <div class="flex items-center gap-2 border-b p-3">
+        <div class="relative flex-1"><span class="abs text-faint" style="left:12px;top:10px">${icon('search', 16)}</span><div class="input h-9 text-faint" style="padding-left:36px">Search names</div></div>
+        <div class="flex gap-0.5 rounded-lg bg-sunken p-0.5 text-xs">
+          <span class="h-8 rounded-md px-2.5 font-semibold bg-surface shadow-card flex items-center">All</span>
+          <span class="h-8 rounded-md px-2.5 font-semibold text-muted flex items-center">Claimed</span>
+          <span class="h-8 rounded-md px-2.5 font-semibold text-muted flex items-center">Unclaimed</span>
+        </div>
+        <span class="btn-secondary btn-sm h-9">${icon('file-up', 14)} Import</span>
+        <span class="btn-primary btn-sm h-9">${icon('sparkles', 14)} Bulk create</span>
+      </div>
+      <table class="w-full border-collapse text-[13px]">
+        <thead>
+          <tr class="bg-sunken text-[10px] font-medium text-faint">
+            <th class="w-12 border border-line"></th>${['A', 'B', 'C', 'D'].map((c) => `<th class="border border-line py-0.5">${c}</th>`).join('')}
+          </tr>
+          <tr class="bg-sunken text-left text-xs font-semibold text-muted">
+            <th class="border border-line px-2 py-1.5 text-center">#</th>
+            <th class="border border-line px-2 py-1.5">Name</th>
+            <th class="border border-line px-2 py-1.5 w-32">Status</th>
+            <th class="border border-line px-2 py-1.5 w-40">First claimed</th>
+            <th class="border border-line px-2 py-1.5 w-28 text-right">Downloads</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${NAMES.map((n, i) => `<tr id="s4-r${i}" class="bg-surface">
+            <td class="border border-line bg-sunken/60 text-center text-xs tabular-nums text-faint">${i + 1}</td>
+            <td class="border border-line px-2 py-1.5 font-medium">${n}</td>
+            <td class="border border-line px-2 py-1.5 text-faint">Not yet</td>
+            <td class="border border-line px-2 py-1.5"></td>
+            <td class="border border-line px-2 py-1.5"></td></tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="flex items-center gap-4 border-t bg-sunken px-3 py-1.5 text-xs text-muted">
+        <span>Rows: <b id="s4-rows" class="tabular-nums text-ink">0</b></span>
+        <span>Claimed: <b class="tabular-nums text-ink">0</b></span>
+        <span class="ml-auto">Double-click a name to fix its spelling</span>
+      </div>
+    </section>
+  </div>
+  <div id="s4-toast" class="abs flex items-center gap-3 rounded-xl bg-surface shadow-pop font-semibold" style="left:1180px;top:150px;padding:14px 22px;font-size:22px">
+    <span class="flex items-center justify-center rounded-full bg-success-soft text-success" style="width:34px;height:34px">${icon('check', 20)}</span> Imported 248 names
+  </div>
+</section>
+
+<!-- 5 · share one link: the claim -->
+<section id="s5" class="scene">
+  <div id="s5-head" class="abs flex items-center gap-6" style="left:150px;top:70px">
+    <div class="step-num">3</div>
+    <h2 class="font-display font-semibold tracking-tight" style="font-size:64px;line-height:1">Share one link</h2>
+  </div>
+  <div id="s5-left" class="abs" style="left:150px;top:215px;width:440px;transform:scale(1.42);transform-origin:top left">
+    <div class="flex items-center gap-3">
+      <span class="flex h-12 w-12 items-center justify-center rounded-xl bg-surface text-accent shadow-card">${icon('award', 24)}</span>
+      <p class="text-xs font-semibold uppercase tracking-[0.14em] text-muted">Official certificate</p>
+    </div>
+    <h1 class="mt-4 font-display text-[34px] font-semibold leading-[1.1] tracking-tight">Web Development Bootcamp 2026</h1>
+    <div id="s5-slot" class="relative mt-6" style="height:300px">
+      <div id="s5-form" class="card p-6 abs" style="left:0;right:0;top:0">
+        <label class="block text-sm font-semibold">Your full name</label>
+        <p class="mt-0.5 text-xs text-muted">Enter it the way you registered for the event.</p>
+        <div id="s5-input" class="input h-12 text-base mt-4"><span id="s5-text"></span><span id="s5-caret" class="caret"></span></div>
+        <button id="s5-btn" class="btn-primary h-12 w-full text-base mt-4">
+          <span id="s5-btn-a" class="inline-flex items-center gap-2">Get my certificate ${icon('arrow-right', 20)}</span>
+          <span id="s5-btn-b" class="inline-flex items-center gap-2" style="display:none"><span id="s5-spin" style="display:inline-flex">${icon('loader-circle', 20)}</span> Checking the list…</span>
+        </button>
+      </div>
+      <div id="s5-ready" class="card p-6 abs" style="left:0;right:0;top:0;opacity:0">
+        <p class="inline-flex items-center gap-2 text-sm font-semibold text-success">${icon('party-popper', 16)} You&rsquo;re on the list</p>
+        <h2 class="mt-1.5 font-display text-2xl font-semibold leading-snug">Congratulations, José Dela Cruz!</h2>
+        <p class="mt-1 text-sm text-muted">Your certificate is ready.</p>
+        <button class="btn-primary h-12 w-full text-base mt-4">${icon('download', 20)} Download certificate (PNG)</button>
+      </div>
+    </div>
+  </div>
+  <div id="s5-right" class="abs" style="left:880px;top:200px">
+    <div class="relative overflow-hidden rounded-2xl border bg-surface shadow-pop" style="padding:10px">
+      ${certificate('s5c', 890)}
+      <div id="s5-shine" class="abs" style="top:0;bottom:0;width:260px;background:linear-gradient(100deg,transparent,rgba(255,255,255,.75),transparent);opacity:0"></div>
+    </div>
+    <p class="text-center text-muted" style="margin-top:18px;font-size:22px;height:30px;position:relative">
+      <span id="s5-live" class="abs" style="left:0;right:0">Live preview: your name appears as you type</span>
+      <span id="s5-ver" class="abs inline-flex items-center justify-center gap-2 font-semibold text-success" style="left:0;right:0;opacity:0">${icon('shield-check', 22)} Verified certificate</span>
+    </p>
+  </div>
+  <p id="s5-cap" class="abs text-center font-display font-semibold tracking-tight" style="left:0;right:0;top:972px;font-size:48px">
+    Typos forgiven. <span class="text-accent">Name printed exactly as listed.</span>
+  </p>
+</section>
+
+<!-- 6 · bulk create -->
+<section id="s6" class="scene">
+  ${stepHead('s6h', '+', 'Or bulk-create them all', 'One print-ready PDF, or a ZIP of PNGs. No claim link needed.')}
+  <div id="s6-stack" class="abs" style="left:1000px;top:150px">
+    <div class="abs" style="left:150px;top:-10px;transform:rotate(6deg)"><div class="rounded-xl bg-surface shadow-pop" style="padding:6px">${certificate('s6c2', 560, 'Aiko Tanaka')}</div></div>
+    <div class="abs" style="left:70px;top:0px;transform:rotate(2.5deg)"><div class="rounded-xl bg-surface shadow-pop" style="padding:6px">${certificate('s6c1', 560, 'Priya Raman')}</div></div>
+  </div>
+  <div id="s6-modal" class="abs" style="left:880px;top:330px;width:448px;transform:scale(1.5);transform-origin:top left">
+    <div class="rounded-2xl bg-surface p-6 shadow-pop border">
+      <h3 class="text-lg font-bold">Bulk create certificates</h3>
+      <p class="mt-1 text-sm text-muted">Generates 248 certificates for everyone on the list, using your saved design.</p>
+      <div class="mt-4 grid grid-cols-2 gap-2">
+        <div class="rounded-xl border-2 p-3" style="border-color:#3346d3;background:rgb(236 239 253 / .6)">
+          <span class="text-accent">${icon('file-text', 20)}</span>
+          <div class="mt-2 text-sm font-semibold">One PDF</div>
+          <div class="mt-0.5 text-xs text-muted">A page per participant. Best for printing or emailing.</div>
+        </div>
+        <div class="rounded-xl border-2 p-3 border-line">
+          <span class="text-muted">${icon('file-archive', 20)}</span>
+          <div class="mt-2 text-sm font-semibold">ZIP of PNGs</div>
+          <div class="mt-0.5 text-xs text-muted">One image file per participant, numbered.</div>
+        </div>
+      </div>
+      <div class="mt-4">
+        <div class="flex justify-between text-xs text-muted">
+          <span id="s6-plabel">Creating certificates…</span>
+          <span class="tabular-nums"><span id="s6-done">0</span> / 248</span>
+        </div>
+        <div class="mt-1.5 h-2 overflow-hidden rounded-full bg-accent-soft"><div id="s6-bar" class="h-full rounded-full bg-accent" style="width:0"></div></div>
+      </div>
+    </div>
+  </div>
+  <div id="s6-toast" class="abs flex items-center gap-3 rounded-xl bg-surface shadow-pop font-semibold" style="left:1060px;top:880px;padding:14px 22px;font-size:22px">
+    <span class="flex items-center justify-center rounded-full bg-success-soft text-success" style="width:34px;height:34px">${icon('check', 20)}</span> Created 248 certificates
+  </div>
+</section>
+
+<!-- 7 · outro -->
+<section id="s7" class="scene">
+  <div id="s7-panel" class="abs overflow-hidden bg-ink text-canvas" style="inset:0">
+    <div class="abs rounded-full" style="left:-120px;top:-160px;width:720px;height:720px;background:rgb(51 70 211 / .5);filter:blur(110px)"></div>
+    <div class="abs rounded-full" style="right:-60px;bottom:-200px;width:720px;height:720px;background:rgb(21 128 61 / .3);filter:blur(110px)"></div>
+    <div class="abs text-center" style="inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+      <div id="s7-logo" class="flex items-center gap-4">
+        <span class="flex items-center justify-center rounded-xl bg-canvas text-ink" style="width:64px;height:64px">${icon('award', 36)}</span>
+        <span class="font-display font-semibold tracking-tight" style="font-size:64px;line-height:1">Certify</span>
+      </div>
+      <h2 id="s7-h" class="font-display font-semibold tracking-tight" style="font-size:104px;line-height:1.06;margin-top:56px;max-width:1500px">Your next event&rsquo;s certificates, sorted.</h2>
+      <div id="s7-cta" class="flex flex-col items-center" style="margin-top:64px">
+        <div id="s7-browser" class="rounded-2xl bg-surface text-ink shadow-pop" style="width:900px;padding:14px 18px">
+          <div class="flex items-center gap-4">
+            <span class="flex gap-2">${['#e5a19a', '#e8cf8f', '#a9d4b0'].map((c) => `<span class="rounded-full" style="width:14px;height:14px;background:${c}"></span>`).join('')}</span>
+            <div id="s7-url" class="flex flex-1 items-center gap-3 rounded-full bg-sunken" style="height:68px;padding:0 26px;font-size:32px">
+              <span class="text-success">${icon('lock', 26)}</span>
+              <span class="whitespace-nowrap"><span class="text-faint">https://</span><span id="s7-typed" class="font-semibold"></span><span id="s7-caret" class="caret" style="height:1.1em"></span></span>
+              <span id="s7-enter" class="ml-auto flex items-center justify-center rounded-full bg-accent text-white" style="width:46px;height:46px">${icon('arrow-right', 24)}</span>
+            </div>
+          </div>
+        </div>
+        <p style="margin-top:28px;font-size:26px;color:rgb(246 245 241 / .75)">Free to start · no credit card</p>
+      </div>
+    </div>
+  </div>
+</section>`;
+
+$('s5c-wm').innerHTML = watermark(890);
+
+if (V) {
+  for (const el of [document.documentElement, document.body, $('stage')]) Object.assign(el.style, { width: '1080px', height: '1920px' });
+  set('s1-h', { top: '330px', fontSize: '104px', lineHeight: '1.08' });
+  set('s1-a', { display: 'block' }); set('s1-b', { display: 'block' });
+  set('s1-wrap', { top: K.s1Top + 'px' });
+  set('s2-h', { maxWidth: '900px', fontSize: '84px' });
+  for (const id of ['s3h', 's4h', 's6h']) set(id, { left: '80px', width: '920px', top: '300px', bottom: 'auto', justifyContent: 'flex-start' });
+  set('s3-card', { left: K.s3x + 'px', top: K.s3y + 'px' });
+  set('s3-pill', { left: '780px', top: '842px' });
+  set('s4-wrap', { left: '62px', top: '920px' });
+  set('s4-toast', { left: '330px', top: '810px' });
+  set('s5-head', { left: '80px', top: '90px' });
+  set('s5-left', { left: K.s5x + 'px', top: K.s5y + 'px' });
+  set('s5-slot', { height: '240px' });
+  set('s5-right', { left: '85px', top: '1010px' });
+  set('s5-cap', { top: '1740px', fontSize: '54px', lineHeight: '1.15' });
+  $('s5-cap').innerHTML = 'Typos forgiven.<br><span class="text-accent">Name printed exactly as listed.</span>';
+  set('s6-stack', { left: '230px', top: '780px' });
+  set('s6-modal', { left: '92px', top: '1080px' });
+  set('s6-toast', { left: '310px', top: '1700px' });
+  set('s7-h', { maxWidth: '900px', fontSize: '100px' });
+  set('s7-browser', { width: '960px' });
+  set('s7-url', { fontSize: '30px', padding: '0 20px' });
+}
+$('s3c-name').textContent = '';
+
+// ── timeline ────────────────────────────────────────────────────────────
+const SCENES = [['s1', 0, 4], ['s2', 4, 8], ['s3', 8, 12], ['s4', 12, 16], ['s5', 16, 22], ['s6', 22, 26], ['s7', 26, 30.1]];
+const OUT = 0.28; // old content leaves before new content arrives
+
+function cursorAt(x, y, o, press = 0) {
+  set('cursor', { left: x + 'px', top: y + 'px', opacity: o, transform: `scale(${1 - press * 0.15})` });
+}
+
+window.render = function render(t) {
+  // Scene visibility: fade out over the last OUT seconds, the next scene builds its own entrance.
+  for (const [id, a, b] of SCENES) {
+    const vis = t >= a && t < b;
+    const out = id === 's7' ? 1 : 1 - eInOut(prog(t, b - OUT, b));
+    $(id).style.opacity = vis ? out : 0;
+    $(id).style.transform = vis ? `translateY(${(1 - out) * -18}px)` : '';
+  }
+  let cur = null;
+
+  // 1 · hook
+  if (t < 4) {
+    const name = 'Definitely Attended';
+    rise('s1-a', t, 0.0, 0.4);
+    const b = eBack(prog(t, 1.95, 2.3));
+    set('s1-b', { opacity: prog(t, 1.95, 2.1), transform: `scale(${lerp(0.85, 1, b)})` });
+    const wrapIn = eOut(prog(t, 0, 0.5));
+    set('s1-wrap', { opacity: wrapIn, transform: `translateX(-50%) translateY(${(1 - wrapIn) * 30}px) scale(${K.s1Scale})` });
+    const txt = typed(name, t, 0.3, 1.15);
+    $('s1-text').textContent = txt;
+    $('s1-ph').style.display = txt ? 'none' : '';
+    const verifying = t >= 1.4 && t < 1.95;
+    $('s1-caret').style.opacity = t < 1.4 && Math.floor(t * 3) % 2 === 0 || (t > 0.3 && t < 1.15) ? 1 : 0;
+    set('s1-input', { borderColor: t < 1.4 ? '#3346d3' : '#cfcbbe', boxShadow: t < 1.4 ? '0 0 0 4px rgb(51 70 211 / .15)' : 'none' });
+    $('s1-btn-a').style.display = verifying ? 'none' : '';
+    $('s1-btn-b').style.display = verifying ? '' : 'none';
+    $('s1-spin').style.transform = `rotate(${t * 540}deg)`;
+    $('s1-btn').style.opacity = verifying ? 0.6 : 1;
+    const press = Math.max(0, 1 - Math.abs(t - 1.38) / 0.08);
+    $('s1-btn').style.transform = `scale(${1 - press * 0.03})`;
+    const al = eOut(prog(t, 1.95, 2.2));
+    $('s1-alert-wrap').style.height = al * 104 + 'px';
+    const shake = t > 2.0 ? Math.sin((t - 2.0) * 60) * 7 * Math.max(0, 1 - (t - 2.0) / 0.4) : 0;
+    $('s1-card').style.transform = `translateX(${shake}px)`;
+    // cursor glides to the button, clicks, drifts away
+    const cx = K.cx1 + 60, cy = K.s1Top + K.s1Scale * 214;
+    const into = eInOut(prog(t, 0.9, 1.3));
+    cur = [lerp(cx + 300, cx, into), lerp(cy + 300, cy, into), prog(t, 0.8, 1.0) * (1 - prog(t, 2.4, 2.7)), press];
+  }
+
+  // 2 · reveal
+  if (t >= 4 && t < 8) {
+    const lp = eBack(prog(t, 4.1, 4.55));
+    set('s2-logo', { opacity: prog(t, 4.1, 4.3), transform: `scale(${lerp(0.8, 1, lp)})` });
+    ['s2-w0', 's2-w1', 's2-w2'].forEach((id, i) => { rise(id, t, 4.5 + i * 0.22, 0.5, 30); $(id).style.display = 'inline-block'; });
+    rise('s2-pill', t, 5.3, 0.45, 16);
+  }
+
+  // 3 · upload your design
+  if (t >= 8 && t < 12) {
+    rise('s3h-n', t, 8.05); rise('s3h-t', t, 8.15); rise('s3h-s', t, 8.3);
+    const drop = eOut(prog(t, 8.15, 8.75));
+    set('s3-card', { opacity: prog(t, 8.15, 8.4), transform: `translateY(${(1 - drop) * 80}px) rotate(${(1 - drop) * 3 + 1}deg)` });
+    // name box: dragged from lower right into the blank (box is positioned within card)
+    const d = eInOut(prog(t, 9.0, 9.8));
+    const bx = lerp(560, 217, d), by = lerp(540, 300, d);
+    set('s3-box', { left: bx + 'px', top: by + 'px', opacity: prog(t, 8.7, 8.95) * (1 - prog(t, 11.0, 11.3)) });
+    const st = prog(t, 10.2, 10.5);
+    $('s3-plain').style.opacity = 1 - st;
+    $('s3-styled').style.opacity = st;
+    $('s3-styled').style.transform = `scale(${lerp(0.9, 1, eOut(st))})`;
+    // after the box fades, the styled name lives on the certificate
+    $('s3c-name').textContent = 'Your Name';
+    $('s3c-name').style.opacity = prog(t, 11.0, 11.3);
+    const pp = eBack(prog(t, 10.2, 10.55));
+    set('s3-pill', { opacity: prog(t, 10.2, 10.35), transform: `scale(${lerp(0.6, 1, pp)})` });
+    const cx = K.s3x + 12 + bx + 260, cy = K.s3y + 12 + by + 48;
+    const grab = t > 8.9 && t < 9.85 ? 1 : 0;
+    cur = [cx, cy, prog(t, 8.7, 8.9) * (1 - prog(t, 10.0, 10.3)), grab];
+  }
+
+  // 4 · add your list
+  if (t >= 12 && t < 16) {
+    rise('s4h-n', t, 12.05); rise('s4h-t', t, 12.15); rise('s4h-s', t, 12.3);
+    const w = eOut(prog(t, 12.1, 12.6));
+    set('s4-wrap', { opacity: prog(t, 12.1, 12.35), transform: `translateY(${(1 - w) * 40}px) scale(${K.s4Scale})` });
+    NAMES.forEach((_, i) => {
+      const p = eOut(prog(t, 12.65 + i * 0.13, 12.95 + i * 0.13));
+      set('s4-r' + i, { opacity: p, transform: `translateX(${(1 - p) * -14}px)` });
+    });
+    $('s4-rows').textContent = Math.round(eInOut(prog(t, 12.65, 13.9)) * 248);
+    const tp = eBack(prog(t, 14.0, 14.35));
+    set('s4-toast', { opacity: prog(t, 14.0, 14.15), transform: `translateY(${(1 - tp) * -20}px)` });
+  }
+
+  // 5 · claim
+  if (t >= 16 && t < 22) {
+    rise('s5-head', t, 16.05);
+    rise('s5-left', t, 16.1, 0.5, 0); $('s5-left').style.transform = `translateY(${(1 - eOut(prog(t, 16.1, 16.6))) * 30}px) scale(${K.s5Scale})`;
+    rise('s5-right', t, 16.2, 0.5, 40);
+    const typedName = typed('jose dela-cruz', t, 16.6, 17.75);
+    const ready = t >= 18.6;
+    const verifying = t >= 18.05 && !ready;
+    $('s5-text').textContent = typedName;
+    $('s5-caret').style.opacity = t < 18.0 ? (t < 17.75 || Math.floor(t * 3) % 2 === 0 ? 1 : 0) : 0;
+    set('s5-input', { borderColor: t < 18 ? '#3346d3' : '#cfcbbe', boxShadow: t < 18 ? '0 0 0 4px rgb(51 70 211 / .15)' : 'none' });
+    $('s5-btn-a').style.display = verifying ? 'none' : '';
+    $('s5-btn-b').style.display = verifying ? '' : 'none';
+    $('s5-spin').style.transform = `rotate(${t * 540}deg)`;
+    const press = Math.max(0, 1 - Math.abs(t - 18.0) / 0.08);
+    $('s5-btn').style.transform = `scale(${1 - press * 0.03})`;
+    $('s5-btn').style.opacity = verifying ? 0.6 : 1;
+    // stagger: form leaves, ready card arrives
+    const fo = prog(t, 18.6, 18.8), ri = eOut(prog(t, 18.8, 19.15));
+    set('s5-form', { opacity: 1 - fo, transform: `translateY(${-8 * fo}px)` });
+    set('s5-ready', { opacity: ri, transform: `translateY(${(1 - ri) * 8}px)` });
+    // certificate: live preview while typing, then the listed spelling
+    $('s5c-name').textContent = ready ? 'José Dela Cruz' : (typedName || 'Your Name');
+    $('s5c-name').style.opacity = !ready && !typedName ? 0.45 : 1;
+    const np = eBack(prog(t, 18.6, 18.95));
+    $('s5c-name').style.transform = ready ? `scale(${lerp(0.9, 1, np)})` : '';
+    $('s5c-wm').style.opacity = 1 - prog(t, 18.6, 18.9);
+    const sh = prog(t, 18.7, 19.4);
+    set('s5-shine', { opacity: sh > 0 && sh < 1 ? 1 : 0, left: lerp(-300, 950, eInOut(sh)) + 'px' });
+    $('s5-live').style.opacity = 1 - prog(t, 18.6, 18.75);
+    $('s5-ver').style.opacity = prog(t, 18.75, 18.95);
+    rise('s5-cap', t, 19.45, 0.45, 16);
+    const bx = K.s5x + K.s5Scale * 220, by = K.s5y + K.s5Scale * (34 + 16 + 37 * 2 + 24 + 160);
+    const into = eInOut(prog(t, 17.5, 17.92));
+    cur = [lerp(bx + 400, bx, into), lerp(by + 300, by, into), prog(t, 17.4, 17.6) * (1 - prog(t, 18.6, 18.9)), press];
+  }
+
+  // 6 · bulk create
+  if (t >= 22 && t < 26) {
+    rise('s6h-n', t, 22.05); rise('s6h-t', t, 22.15); rise('s6h-s', t, 22.3);
+    const fan = eOut(prog(t, 22.1, 22.7));
+    set('s6-stack', { opacity: prog(t, 22.1, 22.35), transform: `translateY(${(1 - fan) * 50}px)` });
+    const m = eOut(prog(t, 22.25, 22.7));
+    set('s6-modal', { opacity: prog(t, 22.25, 22.45), transform: `translateY(${(1 - m) * 30}px) scale(${K.s6Scale})` });
+    const p = eInOut(prog(t, 22.75, 24.3));
+    $('s6-bar').style.width = p * 100 + '%';
+    $('s6-done').textContent = Math.round(p * 248);
+    $('s6-plabel').textContent = p >= 1 ? 'Done' : 'Creating certificates…';
+    const tp = eBack(prog(t, 24.35, 24.7));
+    set('s6-toast', { opacity: prog(t, 24.35, 24.5), transform: `translateY(${(1 - tp) * 20}px)` });
+  }
+
+  // 7 · outro: ink panel opens from the center
+  if (t >= 26) {
+    const o = eInOut(prog(t, 26.0, 26.5));
+    const ix = (1 - o) * 46, iy = (1 - o) * 46;
+    $('s7-panel').style.clipPath = `inset(${iy}% ${ix}% round ${lerp(200, 0, o)}px)`;
+    rise('s7-logo', t, 26.4, 0.45, 20);
+    rise('s7-h', t, 26.6, 0.55, 30);
+    rise('s7-cta', t, 27.0, 0.45, 20);
+    // the link types itself into the address bar, then "Enter"
+    const url = 'automate-n-certify.vercel.app';
+    $('s7-typed').textContent = typed(url, t, 27.25, 28.35);
+    $('s7-caret').style.opacity = t < 28.35 || Math.floor(t * 3) % 2 === 0 ? 1 : 0;
+    const enter = Math.max(0, 1 - Math.abs(t - 28.55) / 0.1);
+    $('s7-enter').style.transform = `scale(${1 - enter * 0.15})`;
+    $('s7-enter').style.opacity = 0.35 + 0.65 * prog(t, 28.35, 28.5);
+    set('s7-url', { boxShadow: t > 28.5 ? `0 0 0 ${3 * prog(t, 28.5, 28.7)}px rgb(51 70 211 / .35)` : 'none' });
+  }
+
+  if (cur) cursorAt(cur[0], cur[1], cur[2], cur[3]); else cursorAt(0, 0, 0);
+};
+
+window.ready = (async () => {
+  await document.fonts.ready;
+  await Promise.all(['400', '600', '700'].map((w) => document.fonts.load(`${w} 20px "Plus Jakarta Sans"`)).concat(
+    ['italic 400 40px "Playfair Display"', '600 40px "Playfair Display"'].map((f) => document.fonts.load(f))));
+  await new Promise((r) => setTimeout(r, 400)); // let the Tailwind CDN finish its pass
+  render(0);
+  return true;
+})();
+const q = new URLSearchParams(location.search);
+if (q.has('t')) window.ready.then(() => render(Number(q.get('t'))));
+</script>
+</body>
+</html>
