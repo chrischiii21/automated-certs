@@ -2,6 +2,8 @@ Caption (short):
 Not on the list? No certificate. 🎓 Certify: event certificates only your real participants can claim.
 https://automate-n-certify.vercel.app
 
+Deploy again
+
 Caption (long):
 Introducing Certify 🎓✨
 
